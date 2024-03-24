@@ -4,6 +4,10 @@ use winit::{
 };
 
 mod state;
+mod particle;
+mod geometry;
+mod vertex;
+mod camera;
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
