@@ -1,12 +1,13 @@
 use wgpu::util::DeviceExt;
+use winit::dpi::PhysicalSize;
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-);
+// #[rustfmt::skip]
+// pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+//     1.0, 0.0, 0.0, 0.0,
+//     0.0, 1.0, 0.0, 0.0,
+//     0.0, 0.0, 0.5, 0.5,
+//     0.0, 0.0, 0.0, 1.0,
+// );
 
 pub struct Camera {
     pub eye: cgmath::Point3<f32>,
@@ -19,6 +20,17 @@ pub struct Camera {
 }
 
 impl Camera {
+    pub fn new(window_size: &PhysicalSize<u32>) -> Self {
+        Camera {
+            eye: (window_size.width as f32 / 2.0, window_size.height as f32 / 2.0, 450.0).into(),
+            direction: (0.0, 0.0, -1.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: window_size.width as f32 / window_size.height as f32,
+            fovy: 90.0,
+            znear: 0.1,
+            zfar: 500.0,
+        }
+    }
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         let view = cgmath::Matrix4::look_to_rh(self.eye, self.direction, self.up);
 
@@ -52,9 +64,7 @@ impl CameraUniform {
 pub struct CameraState {
     pub camera: Camera,
     pub camera_uniform: CameraUniform,
-    pub camera_buffer: wgpu::Buffer,
-    pub camera_bind_group: wgpu::BindGroup,
-    pub camera_bind_group_layout: wgpu::BindGroupLayout
+    pub buffer: wgpu::Buffer
 }
 
 impl CameraState {
@@ -62,7 +72,7 @@ impl CameraState {
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
 
-        let camera_buffer = device.create_buffer_init(
+        let buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
                 contents: bytemuck::cast_slice(&[camera_uniform]),
@@ -70,39 +80,10 @@ impl CameraState {
             }
         );
 
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }
-            ],
-            label: Some("camera_bind_group_layout"),
-        });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                }
-            ],
-            label: Some("camera_bind_group"),
-        });
-
         CameraState {
             camera,
             camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            camera_bind_group_layout
+            buffer,
         }
     }
 }

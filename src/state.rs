@@ -2,6 +2,7 @@ use log::debug;
 
 use wgpu::util::RenderEncoder;
 use wgpu::Label;
+use wgpu::ShaderModule;
 use winit::dpi::PhysicalPosition;
 use winit::keyboard::PhysicalKey;
 use winit::keyboard::KeyCode;
@@ -11,9 +12,12 @@ use wgpu::util::DeviceExt;
 
 use cgmath::prelude::*;
 use crate::particle::{Particle, ParticleBuffer, ParticleList, ParticleRaw};
+use crate::uniforms::UniformState;
 use crate::vertex::*;
 use crate::geometry;
-use crate::camera::*;
+use crate::uniforms::camera::*;
+
+const NUM_PARTICLES: u32 = 20000;
 
 pub struct State<'window> {
     pub surface: wgpu::Surface<'window>,
@@ -22,13 +26,14 @@ pub struct State<'window> {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: &'window Window,
-    camera_state: CameraState,
+    uniform_state: UniformState,
     render_pipeline: wgpu::RenderPipeline,
     particles_buffer: ParticleBuffer,
     particles_bind_group: wgpu::BindGroup,
     circle_mesh_buffer: geometry::MeshBuffer,
     screen_rect_pipeline: wgpu::RenderPipeline,
-    scren_square_buffer: wgpu::Buffer
+    scren_square_buffer: wgpu::Buffer,
+    compute_pipeline: wgpu::ComputePipeline
 }
 
 impl<'window> State<'window> {
@@ -87,64 +92,18 @@ impl<'window> State<'window> {
         // End of window surface configuration
         //
 
-        let camera = Camera {
-            eye: (config.width as f32 / 2.0, config.height as f32 / 2.0, 300.0).into(),
-            direction: (0.0, 0.0, -1.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 90.0,
-            znear: 0.1,
-            zfar: 401.0,
-        };
-
-        let camera_state = CameraState::new(camera, &device);
-
-        let particles_buffer = ParticleList::init(10000, &config).into_buffer(&device);
-        let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
-
-        let particles_bind_group_layout = &device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor { 
-                label: None, 
-                entries: &[
-                    wgpu::BindGroupLayoutEntry{
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer { 
-                            ty: wgpu::BufferBindingType::Storage { read_only: false }, 
-                            has_dynamic_offset: false, 
-                            min_binding_size: None 
-                        },
-                        count: None
-                    }
-                ] 
-            }
-        );
-
-        let particles_bind_group = device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: &particles_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: particles_buffer.buffer.as_entire_binding()
-                    }
-                ],
-                label: None
-            },
-        );
-
+        let uniform_state = UniformState::new(&device, &size);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
         });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    //&particles_bind_group_layout,
-                    &camera_state.camera_bind_group_layout,
+                    &uniform_state.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -173,7 +132,7 @@ impl<'window> State<'window> {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,//Some(wgpu::Face::Back),
+                cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -189,7 +148,7 @@ impl<'window> State<'window> {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("tmp.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/tmp.wgsl").into()),
         });
 
         let screen_rect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -233,10 +192,67 @@ impl<'window> State<'window> {
         let scren_square_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Particles"),
-                contents: bytemuck::cast_slice(&SCREEN_SQUARE_VERTICES),
+                contents: bytemuck::cast_slice(&get_screen_scquare_vertices(&config)),
                 usage: wgpu::BufferUsages::VERTEX
             }
         );
+
+        let particles_buffer = ParticleList::init(NUM_PARTICLES, &config).into_buffer(&device);
+        let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
+
+        let particles_bind_group_layout = &device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor { 
+                label: None, 
+                entries: &[
+                    wgpu::BindGroupLayoutEntry{
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer { 
+                            ty: wgpu::BufferBindingType::Storage { read_only: false }, 
+                            has_dynamic_offset: false, 
+                            min_binding_size: None 
+                        },
+                        count: None
+                    }
+                ] 
+            }
+        );
+
+        let particles_bind_group = device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: &particles_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: particles_buffer.buffer.as_entire_binding()
+                    }
+                ],
+                label: None
+            },
+        );
+
+        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/simulation.wgsl").into()),
+        });
+
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor 
+            { 
+                label: Some("Compute pipeline layout"), 
+                bind_group_layouts: &[
+                    &particles_bind_group_layout,
+                    &uniform_state.bind_group_layout
+                ], 
+                push_constant_ranges: &[] 
+            }
+        );
+
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Simulation pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "simulate"
+        });
 
         Self {
             window,
@@ -245,13 +261,14 @@ impl<'window> State<'window> {
             queue,
             config,
             size,
-            camera_state,
+            uniform_state,
             render_pipeline,
             particles_buffer,
             particles_bind_group,
             circle_mesh_buffer,
             screen_rect_pipeline,
-            scren_square_buffer
+            scren_square_buffer,
+            compute_pipeline
         }
     }
 
@@ -281,6 +298,7 @@ impl<'window> State<'window> {
     }
 
     pub fn update(&mut self) {
+        self.uniform_state.update(&self.queue);
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -291,6 +309,14 @@ impl<'window> State<'window> {
             label: Some("Render Encoder"),
         });
 
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.compute_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.uniform_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(NUM_PARTICLES.div_ceil(64), 1, 1);
+        }
+        
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -309,12 +335,12 @@ impl<'window> State<'window> {
             });
 
             render_pass.set_pipeline(&self.screen_rect_pipeline);
-            render_pass.set_bind_group(0, &self.camera_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.uniform_state.bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, self.scren_square_buffer.slice(..));
             render_pass.draw(0..6, 0..2);
         }
-
+        
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -333,8 +359,7 @@ impl<'window> State<'window> {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            //render_pass.set_bind_group(0, &self.particles_bind_group, &[]);
-            render_pass.set_bind_group(0, &self.camera_state.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.uniform_state.bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, self.circle_mesh_buffer.vertices.slice(..));
             render_pass.set_vertex_buffer(1, self.particles_buffer.buffer.slice(..));
@@ -347,5 +372,9 @@ impl<'window> State<'window> {
         output.present();
 
         Ok(())
+    }
+
+    fn init_uniform(device: &wgpu::Device) {
+
     }
 }

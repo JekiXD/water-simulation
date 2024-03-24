@@ -2,7 +2,7 @@ use cgmath::Vector3;
 use wgpu::util::DeviceExt;
 
 pub const PARTICLE_MASS: f32 = 1.0;
-pub const RADIUS: f32 = 2.0;
+pub const RADIUS: f32 = 2.5;
 pub const SEGEMTS: u32 = 32;
 
 use crate::geometry;
@@ -25,7 +25,8 @@ impl Particle {
     pub fn into_raw(&self) -> ParticleRaw {
         ParticleRaw {
             position: self.position.into(),
-            velocity: self.velocity.into()
+            velocity: self.velocity.into(),
+            ..Default::default()
         }
     }
 
@@ -35,10 +36,12 @@ impl Particle {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ParticleRaw {
     position: [f32; 3],
-    velocity: [f32; 3]
+    _padding: u32,
+    velocity: [f32; 3],
+    _padding2: u32,
 }
 
 impl ParticleRaw {
@@ -54,7 +57,7 @@ impl ParticleRaw {
                     format: wgpu::VertexFormat::Float32x3
                 }, 
                 wgpu::VertexAttribute{
-                    offset: mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
                     shader_location: 6,
                     format: wgpu::VertexFormat::Float32x3
                 } 
@@ -82,8 +85,6 @@ impl ParticleList {
                 particles.push(Particle::new(position, velocity));
             }
         }
-
-        //println!("{:?}", particles);
 
         ParticleList {
             particles

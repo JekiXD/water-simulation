@@ -7,12 +7,15 @@ mod state;
 mod particle;
 mod geometry;
 mod vertex;
-mod camera;
+mod uniforms;
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let event_loop = EventLoop::new().unwrap();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+    //.with_inner_size(winit::dpi::PhysicalSize { width: 1600, height: 900})
+    .with_inner_size(winit::dpi::LogicalSize { width: 1600, height: 900})
+    .build(&event_loop).unwrap();
 
     let mut state = state::State::new(&window).await;
 
