@@ -91,3 +91,44 @@ pub fn circle(radius: f32, segments: u32) -> Mesh {
         normals
     }
 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct BoundingBoxUniform{
+    position: [f32; 3],
+    _padding: u32,
+    dimensions: [f32; 3],
+    _padding1: u32,
+}
+
+impl BoundingBoxUniform {
+    pub fn new(position: Vector3<f32>, dimensions: Vector3<f32>) -> Self {
+        BoundingBoxUniform {
+            position: position.into(),
+            dimensions: dimensions.into(),
+            ..Default::default()
+        }
+    }
+}
+
+pub struct BoundingBoxState{
+    pub bound: BoundingBoxUniform,
+    pub buffer: wgpu::Buffer
+}
+
+impl BoundingBoxState {
+    pub fn new(device: &wgpu::Device, position: Vector3<f32>, dimensions: Vector3<f32>) -> Self {
+        let bound = BoundingBoxUniform::new(position, dimensions);
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Bounding box buffer"),
+            contents: bytemuck::cast_slice(&[bound]),
+            usage: wgpu::BufferUsages::UNIFORM
+        });
+
+        BoundingBoxState {
+            bound,
+            buffer
+        }
+    }
+}
+

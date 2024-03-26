@@ -15,6 +15,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let window = WindowBuilder::new()
     //.with_inner_size(winit::dpi::PhysicalSize { width: 1600, height: 900})
     .with_inner_size(winit::dpi::LogicalSize { width: 1600, height: 900})
+    .with_position(winit::dpi::LogicalPosition {x: 150, y: 50})
     .build(&event_loop).unwrap();
 
     let mut state = state::State::new(&window).await;

@@ -11,13 +11,13 @@ use winit::event::{ElementState, KeyEvent, WindowEvent};
 use wgpu::util::DeviceExt;
 
 use cgmath::prelude::*;
-use crate::particle::{Particle, ParticleBuffer, ParticleList, ParticleRaw};
+use crate::particle::ParticlesState;
+use crate::particle::{Particle, ParticleRaw};
+use crate::uniforms::parameters::SIMULATION_PARAMETERS;
 use crate::uniforms::UniformState;
 use crate::vertex::*;
 use crate::geometry;
 use crate::uniforms::camera::*;
-
-const NUM_PARTICLES: u32 = 20000;
 
 pub struct State<'window> {
     pub surface: wgpu::Surface<'window>,
@@ -28,12 +28,10 @@ pub struct State<'window> {
     pub window: &'window Window,
     uniform_state: UniformState,
     render_pipeline: wgpu::RenderPipeline,
-    particles_buffer: ParticleBuffer,
-    particles_bind_group: wgpu::BindGroup,
+    particles_state: ParticlesState,
     circle_mesh_buffer: geometry::MeshBuffer,
-    screen_rect_pipeline: wgpu::RenderPipeline,
-    scren_square_buffer: wgpu::Buffer,
-    compute_pipeline: wgpu::ComputePipeline
+    simulate_pipeline: wgpu::ComputePipeline,
+    dap_pipeline: wgpu::ComputePipeline
 }
 
 impl<'window> State<'window> {
@@ -92,6 +90,8 @@ impl<'window> State<'window> {
         // End of window surface configuration
         //
 
+        let particles_state = ParticlesState::new(&device, &config);
+        let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
         let uniform_state = UniformState::new(&device, &size);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -104,6 +104,7 @@ impl<'window> State<'window> {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &uniform_state.bind_group_layout,
+                    &particles_state.fields_bind_group_layout
                 ],
                 push_constant_ranges: &[],
             });
@@ -146,91 +147,6 @@ impl<'window> State<'window> {
             multiview: None,
         });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/tmp.wgsl").into()),
-        });
-
-        let screen_rect_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[
-                    VertexRaw::desc(),
-                    //ParticleRaw::desc()
-                ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,//Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1, 
-                mask: !0, 
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-        
-        let scren_square_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Particles"),
-                contents: bytemuck::cast_slice(&get_screen_scquare_vertices(&config)),
-                usage: wgpu::BufferUsages::VERTEX
-            }
-        );
-
-        let particles_buffer = ParticleList::init(NUM_PARTICLES, &config).into_buffer(&device);
-        let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
-
-        let particles_bind_group_layout = &device.create_bind_group_layout(
-            &wgpu::BindGroupLayoutDescriptor { 
-                label: None, 
-                entries: &[
-                    wgpu::BindGroupLayoutEntry{
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer { 
-                            ty: wgpu::BufferBindingType::Storage { read_only: false }, 
-                            has_dynamic_offset: false, 
-                            min_binding_size: None 
-                        },
-                        count: None
-                    }
-                ] 
-            }
-        );
-
-        let particles_bind_group = device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: &particles_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: particles_buffer.buffer.as_entire_binding()
-                    }
-                ],
-                label: None
-            },
-        );
-
         let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/simulation.wgsl").into()),
@@ -240,18 +156,26 @@ impl<'window> State<'window> {
             { 
                 label: Some("Compute pipeline layout"), 
                 bind_group_layouts: &[
-                    &particles_bind_group_layout,
+                    &particles_state.particles_bind_group_layout,
+                    &particles_state.fields_bind_group_layout,
                     &uniform_state.bind_group_layout
                 ], 
                 push_constant_ranges: &[] 
             }
         );
 
-        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+        let simulate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
             label: Some("Simulation pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &compute_shader,
             entry_point: "simulate"
+        });
+
+        let dap_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Density and pressure pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &compute_shader,
+            entry_point: "compute_density_and_pressure"
         });
 
         Self {
@@ -263,12 +187,10 @@ impl<'window> State<'window> {
             size,
             uniform_state,
             render_pipeline,
-            particles_buffer,
-            particles_bind_group,
+            particles_state,
             circle_mesh_buffer,
-            screen_rect_pipeline,
-            scren_square_buffer,
-            compute_pipeline
+            simulate_pipeline,
+            dap_pipeline
         }
     }
 
@@ -309,37 +231,26 @@ impl<'window> State<'window> {
             label: Some("Render Encoder"),
         });
 
+        let sim = SIMULATION_PARAMETERS.lock().unwrap();
+
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.uniform_state.bind_group, &[]);
-            compute_pass.dispatch_workgroups(NUM_PARTICLES.div_ceil(64), 1, 1);
+            compute_pass.set_pipeline(&self.dap_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
-        
+
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                //location(0)
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_pipeline(&self.screen_rect_pipeline);
-            render_pass.set_bind_group(0, &self.uniform_state.bind_group, &[]);
-
-            render_pass.set_vertex_buffer(0, self.scren_square_buffer.slice(..));
-            render_pass.draw(0..6, 0..2);
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.simulate_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
+
         
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -360,12 +271,13 @@ impl<'window> State<'window> {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_state.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, self.circle_mesh_buffer.vertices.slice(..));
-            render_pass.set_vertex_buffer(1, self.particles_buffer.buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.particles_state.particles_buffer.slice(..));
             render_pass.set_index_buffer(self.circle_mesh_buffer.indices.slice(..), wgpu::IndexFormat::Uint16);
 
-            render_pass.draw_indexed(0..self.circle_mesh_buffer.num_indices, 0, 0..self.particles_buffer.num_particles);
+            render_pass.draw_indexed(0..self.circle_mesh_buffer.num_indices, 0, 0..(self.particles_state.particles.len() as u32));
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

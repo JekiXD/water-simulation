@@ -1,6 +1,7 @@
 struct Particle {
     @location(5) position: vec3<f32>,
-    @location(6) velocity: vec3<f32>
+    @location(6) velocity: vec3<f32>,
+    @location(7) color: vec4<f32>,
 }
 
 struct Particles {
@@ -12,6 +13,7 @@ struct CameraUniform {
 };
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(1) @binding(1) var<storage, read_write>  pressure_field: array<f32>;
 
 ///
 //Vertex
@@ -31,14 +33,14 @@ struct VertexOutput {
 fn vs_main(
     vertex: VertexInput,
     particle: Particle
-    ) 
+)
 -> VertexOutput {
     var out: VertexOutput;
 
     let pos = vertex.position + particle.position;
 
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
-    out.color = vertex.color;
+    out.color = particle.color;
     out.pos =  vec4<f32>(pos, 1.0);
 
     return out;
