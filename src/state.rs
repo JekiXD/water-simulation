@@ -11,6 +11,7 @@ use winit::event::{ElementState, KeyEvent, WindowEvent};
 use wgpu::util::DeviceExt;
 
 use cgmath::prelude::*;
+use crate::particle::NeighbourSearchSortState;
 use crate::particle::ParticlesState;
 use crate::particle::{Particle, ParticleRaw};
 use crate::uniforms::parameters::SIMULATION_PARAMETERS;
@@ -31,7 +32,10 @@ pub struct State<'window> {
     particles_state: ParticlesState,
     circle_mesh_buffer: geometry::MeshBuffer,
     simulate_pipeline: wgpu::ComputePipeline,
-    dap_pipeline: wgpu::ComputePipeline
+    dap_pipeline: wgpu::ComputePipeline,
+    sort_state: NeighbourSearchSortState,
+    calc_hash_pipeline: wgpu::ComputePipeline,
+    cell_start_pipeline: wgpu::ComputePipeline
 }
 
 impl<'window> State<'window> {
@@ -94,6 +98,12 @@ impl<'window> State<'window> {
         let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
         let uniform_state = UniformState::new(&device, &size);
 
+        let subgroup_size = wgpu_sort::utils::guess_workgroup_size(&device, &queue).await.unwrap();
+        let sort_state = NeighbourSearchSortState::new(&device, &queue, subgroup_size);
+
+        //
+        // Render pipeline
+        //
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
@@ -147,8 +157,11 @@ impl<'window> State<'window> {
             multiview: None,
         });
 
-        let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Compute Shader"),
+        //
+        // Pipelines for simulation
+        //
+        let simulate_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Simulation Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/simulation.wgsl").into()),
         });
 
@@ -158,7 +171,8 @@ impl<'window> State<'window> {
                 bind_group_layouts: &[
                     &particles_state.particles_bind_group_layout,
                     &particles_state.fields_bind_group_layout,
-                    &uniform_state.bind_group_layout
+                    &uniform_state.bind_group_layout,
+                    &sort_state.grid_state.bind_group_layout,
                 ], 
                 push_constant_ranges: &[] 
             }
@@ -167,15 +181,47 @@ impl<'window> State<'window> {
         let simulate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
             label: Some("Simulation pipeline"),
             layout: Some(&compute_pipeline_layout),
-            module: &compute_shader,
+            module: &simulate_shader,
             entry_point: "simulate"
         });
 
         let dap_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
             label: Some("Density and pressure pipeline"),
             layout: Some(&compute_pipeline_layout),
-            module: &compute_shader,
+            module: &simulate_shader,
             entry_point: "compute_density_and_pressure"
+        });
+
+        //
+        // Pipeling to prepare resource for the sort
+        //
+        let sort_prep_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { 
+            label: Some("Sort preperation shader"), 
+            source:  wgpu::ShaderSource::Wgsl(include_str!("shaders/sort_prep.wgsl").into())
+        });
+
+        let sort_prep_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { 
+            label: Some("Sort preperation pipeline layout"), 
+            bind_group_layouts: &[
+                &particles_state.particles_bind_group_layout,
+                &sort_state.grid_state.bind_group_layout,
+                &uniform_state.bind_group_layout
+            ], 
+            push_constant_ranges: &[]
+        });
+
+        let calc_hash_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Sort preperation pipeline"),
+            layout: Some(&sort_prep_pipeline_layout),
+            module: &sort_prep_shader,
+            entry_point: "calcHash"
+        });
+
+        let cell_start_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Sort preperation pipeline"),
+            layout: Some(&sort_prep_pipeline_layout),
+            module: &sort_prep_shader,
+            entry_point: "findCellStart"
         });
 
         Self {
@@ -190,7 +236,10 @@ impl<'window> State<'window> {
             particles_state,
             circle_mesh_buffer,
             simulate_pipeline,
-            dap_pipeline
+            dap_pipeline,
+            sort_state,
+            calc_hash_pipeline,
+            cell_start_pipeline
         }
     }
 
@@ -234,20 +283,54 @@ impl<'window> State<'window> {
         let sim = SIMULATION_PARAMETERS.lock().unwrap();
 
         {
+            encoder.clear_buffer(&self.sort_state.grid_state.key_cell_hash_buffer, 0, None);
+            encoder.clear_buffer(&self.sort_state.grid_state.value_particle_id_buffer, 0, None);
+        }
+
+        {
+            //Prepare data for the sort
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.dap_pipeline);
+            compute_pass.set_pipeline(&self.calc_hash_pipeline);
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
             compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
 
         {
+            //Sort for neighbour search
+            self.sort_state.sort(&mut encoder, &self.queue);
+        }
+
+        {
+            //Find start for each cell in the grid
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.cell_start_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+        }
+
+        {
+            //Precompute densities and pressures for each particle
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.dap_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+        }
+
+        {
+            //Simulate
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.simulate_pipeline);
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
             compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
 
@@ -260,7 +343,7 @@ impl<'window> State<'window> {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,//wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

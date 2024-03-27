@@ -1,9 +1,6 @@
 const scene_scale_factor: f32 = 50.0;
 const g: vec3<f32> = vec3<f32>(0.0, -9.8, 0.0);
-const collision_damping = 0.9;
-const kernel_radius = 1.0;
-const rest_density = 1.567;
-const pressure_multiplier = 10.0;
+const MAX_U32: u32 = 0xFFFFFFFF;
 
 var<private> rand_seed : vec2f;
 
@@ -25,10 +22,6 @@ struct Particle {
     color: vec4<f32>
 }
 
-struct Particles {
-  particles : array<Particle>,
-}
-
 struct BoundingBox {
   position: vec3<f32>,
   dimensions: vec3<f32>,
@@ -38,86 +31,108 @@ struct SimulationParameters {
   particle_mass: f32,
   particle_radius: f32,
   particles_amount: u32,
+  collision_damping: f32, 
+  poly_kernel_radius: f32,
+  spiky_kernel_radius: f32,
+  rest_density: f32,
+  pressure_multiplier: f32,
+  bounding_box: BoundingBox,
+  grid_size: u32
 }
 
-@group(0) @binding(0) var<storage, read_write> data : Particles;
+@group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
 @group(1) @binding(0) var<storage, read_write> density_field : array<f32>;
 @group(1) @binding(1) var<storage, read_write> pressure_field : array<f32>;
 @group(2) @binding(1) var<uniform> elapsed_secs: f32;
-@group(2) @binding(2) var<uniform> bounding_box: BoundingBox;
-@group(2) @binding(3) var<uniform> simulation_parameters: SimulationParameters;
+@group(2) @binding(2) var<uniform> sim: SimulationParameters;
+@group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
+@group(3) @binding(1) var<storage, read_write> particle_id : array<u32>;
+@group(3) @binding(2) var<storage, read_write> cell_start : array<u32>;
 
 @compute @workgroup_size(64)
 fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   let idx = global_invocation_id.x;
-  init_rand(idx, vec4f(elapsed_secs));
+  if(idx >= sim.particles_amount) { return; }
 
-  var particle = data.particles[idx];
-  scale_particle_value(&particle, scene_scale_factor);
+  init_rand(idx, vec4f(elapsed_secs));
+  var particle = particles[idx];
 
   //Apply gravity
-  //particle.velocity += elapsed_secs * g;
+  particle.velocity += elapsed_secs * g * scene_scale_factor;
   //Apply pressure
-  let pressure_accel = -compute_pressure_force(idx, &particle) / density_field[idx];
+  let pressure_accel = -compute_pressure_force(idx) / density_field[idx] * scene_scale_factor;
   particle.velocity += elapsed_secs * pressure_accel;
-  //some(idx);
+  //Apply viscosity
 
   particle.position += elapsed_secs * particle.velocity;
-
-  scale_particle_value(&particle, 1/scene_scale_factor);
   compute_collisions(&particle);
 
-  //scale_particle_value(&particle, 1/scene_scale_factor);
-
-  data.particles[idx] = particle;
+  particles[idx] = particle;
 }
 
 fn some(idx: u32) {
   let s = pressure_field[idx];
 }
 
-fn compute_pressure_force(idx: u32, particle: ptr<function, Particle>) -> vec3<f32>{
+fn compute_pressure_force(idx: u32) -> vec3<f32>{
   var pressure_force = vec3<f32>(0.0, 0.0, 0.0);
+  let particle = particles[idx];
 
-  for(var i = u32(0); i < simulation_parameters.particles_amount; i++) {
-    if (i == idx) { continue; }
 
-    var particle2 = data.particles[i];
-    scale_particle_value(&particle2, scene_scale_factor);
+  let center = get_cell_coord(particle.position);;
+  //Neighbour search
+  for(var x = -1; x <= 1; x++) {
+    for(var y = -1; y <= 1; y++) {
+      let cur_pos = vec3i(center) + vec3i(x, y, 0); 
 
-    let vector = particle2.position - (*particle).position;
-    let distance = length(vector);
-    var dir = normalize(vector);
+      if(cur_pos.x < 0 || cur_pos.y < 0 || cur_pos.z < 0) { continue; }
+      let hash = get_key_from_hash(z_order_hash(u32(cur_pos.x), u32(cur_pos.y)));
 
-    if (distance == 0.0) { dir = vec3<f32>(rand(), rand(), 0.0); }
+      var i = cell_start[hash];
+      for(;; i++) {
+        let cell = cell_hash[i];
+        if(cell != hash) { break; }
 
-    let average_pressure = (pressure_field[idx] + pressure_field[i]) / 2.0;
-    let res = simulation_parameters.particle_mass * average_pressure * spiky_kernel_derivative(distance, kernel_radius) / density_field[i];
+        let id2 = particle_id[i];
+        if (id2 == idx) { continue; }
 
-    pressure_force +=  -dir * res;
+        let particle2 = particles[id2];
+
+        //Calculate pressure force
+        let vector = particle2.position - particle.position;
+        let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
+        var dir = normalize(vector);
+
+        if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
+        let average_pressure = (pressure_field[idx] + pressure_field[id2]) / 2.0;
+        let res = sim.particle_mass * average_pressure * spiky_kernel_derivative(distance, sim.spiky_kernel_radius) / density_field[id2];
+
+        pressure_force += dir * res;
+      }
+    }
   }
 
   return pressure_force;
 }
 
 fn compute_collisions(particle: ptr<function, Particle>)  {
-  let dimensions = bounding_box.dimensions;
-  let particle_radius = simulation_parameters.particle_radius;
+  let dimensions = sim.bounding_box.dimensions;
+  let particle_radius = sim.particle_radius;
 
-  var p1 = bounding_box.position + particle_radius + 5.0;
-  var p2 = bounding_box.position + dimensions - particle_radius - 5.0;
+  var p1 = sim.bounding_box.position + particle_radius + 1.0;
+  var p2 = sim.bounding_box.position + dimensions - particle_radius - 1.0;
 
   var pos = (*particle).position;
   var vel = (*particle).velocity;
   
   if pos.x < p1.x || pos.x > p2.x {
     pos.x = clamp(pos.x, p1.x, p2.x);
-    vel.x *= -collision_damping;
+    vel.x *= -sim.collision_damping;
   }
 
   if pos.y < p1.y || pos.y > p2.y {
     pos.y = clamp(pos.y, p1.y, p2.y);
-    vel.y *= -collision_damping;
+    vel.y *= -sim.collision_damping;
   }
 
   (*particle).position = pos;
@@ -127,18 +142,37 @@ fn compute_collisions(particle: ptr<function, Particle>)  {
 @compute @workgroup_size(64)
 fn compute_density_and_pressure(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   let idx = global_invocation_id.x;
+  if(idx >= sim.particles_amount) { return; }
 
-  var particle = data.particles[idx];
-  scale_particle_value(&particle, scene_scale_factor);
+  var particle = particles[idx];
 
   var density = 0.0;
 
-  for(var i = u32(0); i < simulation_parameters.particles_amount; i++) {
-    var particle2 = data.particles[i];
-    scale_particle_value(&particle2, scene_scale_factor);
+  let center = get_cell_coord(particle.position);
+  //Neighbour search
+  for(var x = -1; x <= 1; x++) {
+    for(var y = -1; y <= 1; y++) {
+      let cur_pos = vec3i(center) + vec3i(x, y, 0); 
 
-    let distance = distance(particle.position, particle2.position);
-    density += simulation_parameters.particle_mass * poly_kernel(distance, kernel_radius);
+      if(cur_pos.x < 0 || cur_pos.y < 0 || cur_pos.z < 0) { continue; }
+      let hash = get_key_from_hash(z_order_hash(u32(cur_pos.x), u32(cur_pos.y)));
+
+      var i = cell_start[hash];
+      //if(i == MAX_U32) { continue; }
+      for(;; i++) {
+        let cell = cell_hash[i];
+        if(cell != hash) { break; }
+
+        let id2 = particle_id[i];
+        let particle2 = particles[id2];
+
+        //Calulate dnesity
+        let vector = distance(particle.position, particle2.position);
+        let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
+
+        density += sim.particle_mass * poly_kernel(distance, sim.poly_kernel_radius);
+      }
+    }
   }
 
   density_field[idx] = density;
@@ -146,7 +180,7 @@ fn compute_density_and_pressure(@builtin(global_invocation_id) global_invocation
 }
 
 fn density_to_pressure(density: f32) -> f32 {
-  return (density - rest_density) * pressure_multiplier;
+  return (density - sim.rest_density) * sim.pressure_multiplier;
 }
 
 fn scale_particle_value(p: ptr<function, Particle>, scale_factor: f32) {
@@ -158,7 +192,8 @@ fn scale_particle_value(p: ptr<function, Particle>, scale_factor: f32) {
 ///
 /// Kernels
 ///
-fn poly_kernel(r: f32, h: f32) -> f32 {
+fn poly_kernel(dst: f32, h: f32) -> f32 {
+  let r = dst / scene_scale_factor;
   if r > h {
     return 0.0;
   }
@@ -175,14 +210,15 @@ fn spiky_kernel(r: f32, h: f32) -> f32 {
   return pow(h-r,3.0) * 15.0 / (radians(180.0)*pow(h,6.0));
 }
 
-fn spiky_kernel_derivative(r: f32, h: f32) -> f32 {
+fn spiky_kernel_derivative(dst: f32, h: f32) -> f32 {
+  let r = dst / scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
   let volume = radians(180.0) * pow(h,6.0) / 15.0;
 
-  return -3.0 * pow(h-r, 2.0) / volume;
+  return 3.0 * pow(h-r, 2.0) / volume;
 }
 
 fn viscosity_kernel(r: f32, h: f32) -> f32 {
@@ -195,4 +231,22 @@ fn viscosity_kernel(r: f32, h: f32) -> f32 {
   let a3 = h/(2*r);
 
   return (a1+a2+a3-1.0) * 15.0 / (radians(360.0)*pow(h,3.0));
+}
+
+fn z_order_hash(x: u32, y: u32) -> u32 {
+    var z = 0u;
+    for (var i = 0u; i < 16u; i++) {
+        let x_bit = (x >> i) & 1u;
+        let y_bit = (y >> i) & 1u;
+        z |= (x_bit << (2u * i)) | (y_bit << (2u * i + 1u));
+    }
+    return z;
+}
+
+fn get_cell_coord(pos: vec3f) -> vec3u {
+    return vec3u(pos / f32(sim.grid_size));
+}
+
+fn get_key_from_hash(hash: u32) -> u32 {
+    return hash % sim.particles_amount;
 }

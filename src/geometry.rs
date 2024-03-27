@@ -111,24 +111,3 @@ impl BoundingBoxUniform {
     }
 }
 
-pub struct BoundingBoxState{
-    pub bound: BoundingBoxUniform,
-    pub buffer: wgpu::Buffer
-}
-
-impl BoundingBoxState {
-    pub fn new(device: &wgpu::Device, position: Vector3<f32>, dimensions: Vector3<f32>) -> Self {
-        let bound = BoundingBoxUniform::new(position, dimensions);
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Bounding box buffer"),
-            contents: bytemuck::cast_slice(&[bound]),
-            usage: wgpu::BufferUsages::UNIFORM
-        });
-
-        BoundingBoxState {
-            bound,
-            buffer
-        }
-    }
-}
-

@@ -4,10 +4,6 @@ struct Particle {
     @location(7) color: vec4<f32>,
 }
 
-struct Particles {
-  particles : array<Particle>,
-}
-
 struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
