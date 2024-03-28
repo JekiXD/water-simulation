@@ -95,9 +95,9 @@ pub fn circle(radius: f32, segments: u32) -> Mesh {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BoundingBoxUniform{
-    position: [f32; 3],
+    pub position: [f32; 3],
     _padding: u32,
-    dimensions: [f32; 3],
+    pub dimensions: [f32; 3],
     _padding1: u32,
 }
 

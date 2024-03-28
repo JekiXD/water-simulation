@@ -21,7 +21,9 @@ struct SimulationParameters {
   rest_density: f32,
   pressure_multiplier: f32,
   bounding_box: BoundingBox,
-  grid_size: u32
+  grid_size: f32,
+  scene_scale_factor: f32,
+  gravity: vec3<f32>
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
@@ -29,13 +31,14 @@ struct SimulationParameters {
 @group(1) @binding(1) var<storage, read_write> particle_id : array<u32>;
 @group(1) @binding(2) var<storage, read_write> cell_start : array<u32>;
 @group(2) @binding(2) var<uniform> sim: SimulationParameters;
+@group(3) @binding(2) var<storage, read_write> predicted_positions : array<vec3<f32>>;
 
 @compute @workgroup_size(64)
 fn calcHash(@builtin(global_invocation_id) global_invocation_id : vec3u) {
     let idx = global_invocation_id.x;
     if(idx >= sim.particles_amount) { return; }
 
-    let pos = get_cell_coord(particles[idx].position);
+    let pos = get_cell_coord(predicted_positions[idx]);
     let hash = get_key_from_hash(z_order_hash(pos.x, pos.y));
     cell_hash[idx] = hash;
     particle_id[idx] = idx;
@@ -49,7 +52,7 @@ fn findCellStart(@builtin(global_invocation_id) global_invocation_id : vec3u) {
 
     let key = cell_hash[idx];
     var key_prev = u32(0);
-    if( key == 0 ) {
+    if( idx == 0 ) {
         key_prev = MAX_U32;
     } else {
         key_prev = cell_hash[idx - 1];
@@ -60,18 +63,21 @@ fn findCellStart(@builtin(global_invocation_id) global_invocation_id : vec3u) {
     }
 }
 
-fn z_order_hash(x: u32, y: u32) -> u32 {
-    var z = 0u;
-    for (var i = 0u; i < 16u; i++) {
-        let x_bit = (x >> i) & 1u;
-        let y_bit = (y >> i) & 1u;
-        z |= (x_bit << (2u * i)) | (y_bit << (2u * i + 1u));
-    }
-    return z;
+fn z_order_hash(x: i32, y: i32) -> u32 {
+    // var z = 0u;
+    // for (var i = 0u; i < 16u; i++) {
+    //     let x_bit = (x >> i) & 1u;
+    //     let y_bit = (y >> i) & 1u;
+    //     z |= (x_bit << (2u * i)) | (y_bit << (2u * i + 1u));
+    // }
+    let a = u32(x) * 15823;
+    let b = u32(y) * 9737333;
+
+    return a + b;
 }
 
-fn get_cell_coord(pos: vec3f) -> vec3u {
-    return vec3u(pos / f32(sim.grid_size));
+fn get_cell_coord(pos: vec3f) -> vec3i {
+    return vec3i(floor(pos / sim.grid_size));
 }
 
 fn get_key_from_hash(hash: u32) -> u32 {

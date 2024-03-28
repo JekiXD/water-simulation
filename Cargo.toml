@@ -18,7 +18,6 @@ pollster = "0.3.0"
 once_cell = "1.19.0"
 
 anyhow = "1.0.81"
-
 cgmath = "0.18.0"
 
 [dependencies.image]

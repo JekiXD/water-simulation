@@ -1,32 +1,31 @@
+use std::sync::Arc;
+
 use log::debug;
 
-use wgpu::util::RenderEncoder;
-use wgpu::Label;
-use wgpu::ShaderModule;
 use winit::dpi::PhysicalPosition;
 use winit::keyboard::PhysicalKey;
 use winit::keyboard::KeyCode;
 use winit::window::Window;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
-use wgpu::util::DeviceExt;
 
 use cgmath::prelude::*;
 use crate::particle::NeighbourSearchSortState;
 use crate::particle::ParticlesState;
 use crate::particle::{Particle, ParticleRaw};
+use crate::uniforms::parameters::ParametersControls;
 use crate::uniforms::parameters::SIMULATION_PARAMETERS;
 use crate::uniforms::UniformState;
 use crate::vertex::*;
 use crate::geometry;
 use crate::uniforms::camera::*;
 
-pub struct State<'window> {
-    pub surface: wgpu::Surface<'window>,
+pub struct State {
+    pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
-    pub window: &'window Window,
+    pub window: Arc<Window>,
     uniform_state: UniformState,
     render_pipeline: wgpu::RenderPipeline,
     particles_state: ParticlesState,
@@ -35,11 +34,13 @@ pub struct State<'window> {
     dap_pipeline: wgpu::ComputePipeline,
     sort_state: NeighbourSearchSortState,
     calc_hash_pipeline: wgpu::ComputePipeline,
-    cell_start_pipeline: wgpu::ComputePipeline
+    cell_start_pipeline: wgpu::ComputePipeline,
+    param_controls: ParametersControls,
+    pre_pos_pipeline: wgpu::ComputePipeline
 }
 
-impl<'window> State<'window> {
-    pub async fn new(window: &'window Window) -> Self {
+impl State {
+    pub async fn new(window: Arc<Window>) -> Self {
         //
         // Start of window surface configuration
         //
@@ -50,7 +51,7 @@ impl<'window> State<'window> {
             ..Default::default()
         });
         
-        let surface = instance.create_surface(window).unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
@@ -94,6 +95,7 @@ impl<'window> State<'window> {
         // End of window surface configuration
         //
 
+        //Apply scale is called so you swap order of function calls
         let particles_state = ParticlesState::new(&device, &config);
         let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
         let uniform_state = UniformState::new(&device, &size);
@@ -192,6 +194,13 @@ impl<'window> State<'window> {
             entry_point: "compute_density_and_pressure"
         });
 
+        let pre_pos_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Predict positions"),
+            layout: Some(&compute_pipeline_layout),
+            module: &simulate_shader,
+            entry_point: "predict_positions"
+        });
+
         //
         // Pipeling to prepare resource for the sort
         //
@@ -205,7 +214,8 @@ impl<'window> State<'window> {
             bind_group_layouts: &[
                 &particles_state.particles_bind_group_layout,
                 &sort_state.grid_state.bind_group_layout,
-                &uniform_state.bind_group_layout
+                &uniform_state.bind_group_layout,
+                &particles_state.fields_bind_group_layout
             ], 
             push_constant_ranges: &[]
         });
@@ -224,6 +234,8 @@ impl<'window> State<'window> {
             entry_point: "findCellStart"
         });
 
+        let param_controls = ParametersControls::new();
+
         Self {
             window,
             surface,
@@ -239,7 +251,9 @@ impl<'window> State<'window> {
             dap_pipeline,
             sort_state,
             calc_hash_pipeline,
-            cell_start_pipeline
+            cell_start_pipeline,
+            param_controls,
+            pre_pos_pipeline
         }
     }
 
@@ -264,12 +278,14 @@ impl<'window> State<'window> {
 
                 true
             },
-            _ => false
+            _ => self.param_controls.process_events(event)
         }
     }
 
     pub fn update(&mut self) {
         self.uniform_state.update(&self.queue);
+        self.param_controls.update(&mut SIMULATION_PARAMETERS.lock().unwrap());
+        self.queue.write_buffer(&self.uniform_state.simulation_parameters.buffer, 0, bytemuck::cast_slice(&[*SIMULATION_PARAMETERS.lock().unwrap()]));
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -285,6 +301,18 @@ impl<'window> State<'window> {
         {
             encoder.clear_buffer(&self.sort_state.grid_state.key_cell_hash_buffer, 0, None);
             encoder.clear_buffer(&self.sort_state.grid_state.value_particle_id_buffer, 0, None);
+            encoder.clear_buffer(&self.sort_state.grid_state.cell_start_buffer, 0, None);
+        }
+
+        {
+            //Predict particle's positions
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.pre_pos_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
 
         {
@@ -294,6 +322,7 @@ impl<'window> State<'window> {
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.particles_state.fields_bind_group, &[]);
             compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
 
@@ -309,6 +338,7 @@ impl<'window> State<'window> {
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.particles_state.fields_bind_group, &[]);
             compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
         }
 
@@ -367,9 +397,5 @@ impl<'window> State<'window> {
         output.present();
 
         Ok(())
-    }
-
-    fn init_uniform(device: &wgpu::Device) {
-
     }
 }

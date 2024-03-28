@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use log::debug;
 use winit::{
     event::*, event_loop::EventLoop, keyboard::{KeyCode, PhysicalKey}, window::WindowBuilder
 };
+
+use crate::uniforms::parameters::SIMULATION_PARAMETERS;
+
 
 mod state;
 mod particle;
@@ -12,13 +17,16 @@ mod uniforms;
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let event_loop = EventLoop::new().unwrap();
+
+    let size = SIMULATION_PARAMETERS.lock().unwrap().bounding_box.dimensions;
     let window = WindowBuilder::new()
-    //.with_inner_size(winit::dpi::PhysicalSize { width: 1600, height: 900})
-    .with_inner_size(winit::dpi::LogicalSize { width: 1600, height: 900})
+    .with_inner_size(winit::dpi::LogicalSize { width: size[0], height: size[1]})
     .with_position(winit::dpi::LogicalPosition {x: 150, y: 50})
     .build(&event_loop).unwrap();
 
-    let mut state = state::State::new(&window).await;
+    let window = Arc::new(window);
+
+    let mut state = state::State::new(window).await;
 
     event_loop.run(move |event, elwt| match event {
         Event::WindowEvent {
@@ -64,7 +72,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-   pollster::block_on(run())?;
+    pollster::block_on(run())?;
 
-   Ok(())
+    debug!("{:?}", *SIMULATION_PARAMETERS.lock().unwrap());
+    Ok(())
 }

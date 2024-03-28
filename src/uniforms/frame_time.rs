@@ -9,7 +9,7 @@ impl FrameTime {
     fn new() -> Self {
         Self {
             last_printed_instant: web_time::Instant::now(),
-            elapsed_secs: 0.0,
+            elapsed_secs: 0.0// 1.0 / 60.0,
         }
     }
 

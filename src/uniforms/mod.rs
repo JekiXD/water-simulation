@@ -11,9 +11,9 @@ pub mod frame_time;
 pub mod parameters;
 
 pub struct UniformState {
-    camera: CameraState,
-    frame_time: FrameTimeState,
-    simulation_parameters: SimulationParametersState,
+    pub camera: CameraState,
+    pub frame_time: FrameTimeState,
+    pub simulation_parameters: SimulationParametersState,
     pub bind_group: wgpu::BindGroup,
     pub bind_group_layout: wgpu::BindGroupLayout
 }
