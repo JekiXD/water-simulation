@@ -33,6 +33,8 @@ struct SimulationParameters {
   collision_damping: f32, 
   poly_kernel_radius: f32,
   spiky_kernel_radius: f32,
+  viscosity_kernel_radius: f32,
+  viscosity: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   bounding_box: BoundingBox,
@@ -43,8 +45,7 @@ struct SimulationParameters {
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
 @group(1) @binding(0) var<storage, read_write> density_field : array<f32>;
-@group(1) @binding(1) var<storage, read_write> pressure_field : array<f32>;
-@group(1) @binding(2) var<storage, read_write> predicted_positions : array<vec3<f32>>;
+@group(1) @binding(1) var<storage, read_write> predicted_positions : array<vec3<f32>>;
 @group(2) @binding(1) var<uniform> elapsed_secs: f32;
 @group(2) @binding(2) var<uniform> sim: SimulationParameters;
 @group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
@@ -72,21 +73,22 @@ fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   init_rand(idx, vec4f(elapsed_secs));
   var particle = particles[idx];
 
-  //Apply pressure
-  let pressure_accel = -compute_pressure_force(idx) / density_field[idx];
-  particle.velocity += elapsed_secs * pressure_accel;
-  //Apply viscosity
+  //Apply pressure and viscosity
+  let accel = compute_press_and_visc(idx);
+  particle.velocity += elapsed_secs * accel;
 
   particle.position += elapsed_secs * particle.velocity;
-
   compute_collisions(&particle);
   particles[idx] = particle;
 }
 
-fn compute_pressure_force(idx: u32) -> vec3<f32>{
+fn compute_press_and_visc(idx: u32) -> vec3<f32>{
   var pressure_force = vec3<f32>(0.0, 0.0, 0.0);
+  var viscosity_force = vec3<f32>(0.0, 0.0, 0.0);
 
+  let p1_velocity = particles[idx].velocity;
   let p1_pos = predicted_positions[idx];
+  let p1_density = density_field[idx];
 
   let center = get_cell_coord(p1_pos);
   //Neighbour search
@@ -105,22 +107,30 @@ fn compute_pressure_force(idx: u32) -> vec3<f32>{
         if (id2 == idx) { continue; }
 
         let p2_pos = predicted_positions[id2];
+        let p2_velocity = particles[id2].velocity;
+        let p2_density = density_field[id2];
 
         //Calculate pressure force
         let vector = p1_pos - p2_pos;
+        //let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
         let distance = length(vector);
         var dir = normalize(vector);
-
         if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
-        let average_pressure = (pressure_field[idx] + pressure_field[id2]) / 2.0;
-        let res = -sim.particle_mass * average_pressure * spiky_kernel_derivative(distance, sim.spiky_kernel_radius) / density_field[id2];
 
-        pressure_force += dir * res;
+        //Calculate pressure
+        let average_pressure = (density_to_pressure(p1_density) + density_to_pressure(p2_density)) / 2.0;
+        let press = -sim.particle_mass * average_pressure * spiky_kernel_derivative(distance, sim.spiky_kernel_radius) / p2_density;
+        pressure_force += dir * press;
+
+        //Calculate viscosity
+        let velocity_dif = p2_velocity - p1_velocity;
+        let visc = sim.viscosity * sim.particle_mass * velocity_dif * viscosity_kernel_laplace(distance, sim.viscosity_kernel_radius) / p2_density;
+        viscosity_force += visc;
       }
     }
   }
 
-  return pressure_force;
+  return (-pressure_force + viscosity_force) / p1_density;
 }
 
 fn compute_collisions(particle: ptr<function, Particle>)  {
@@ -174,6 +184,7 @@ fn compute_density_and_pressure(@builtin(global_invocation_id) global_invocation
 
         //Calulate dnesity
         let vector = p1_pos - p2_pos;
+        //let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
         let distance = length(vector);
 
         density += sim.particle_mass * poly_kernel(distance, sim.poly_kernel_radius);
@@ -182,7 +193,6 @@ fn compute_density_and_pressure(@builtin(global_invocation_id) global_invocation
   }
 
   density_field[idx] = density;
-  pressure_field[idx] = density_to_pressure(density);
 }
 
 fn density_to_pressure(density: f32) -> f32 {
@@ -198,7 +208,8 @@ fn scale_particle_value(p: ptr<function, Particle>, scale_factor: f32) {
 ///
 /// Kernels
 ///
-fn poly_kernel(r: f32, h: f32) -> f32 {
+fn poly_kernel(dst: f32, h: f32) -> f32 {
+  let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
@@ -207,7 +218,8 @@ fn poly_kernel(r: f32, h: f32) -> f32 {
 }
 
 
-fn spiky_kernel(r: f32, h: f32) -> f32 {
+fn spiky_kernel(dst: f32, h: f32) -> f32 {
+  let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
@@ -215,7 +227,8 @@ fn spiky_kernel(r: f32, h: f32) -> f32 {
   return pow(h-r,3.0) * 15.0 / (radians(180.0)*pow(h,6.0));
 }
 
-fn spiky_kernel_derivative(r: f32, h: f32) -> f32 {
+fn spiky_kernel_derivative(dst: f32, h: f32) -> f32 {
+  let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
@@ -225,16 +238,25 @@ fn spiky_kernel_derivative(r: f32, h: f32) -> f32 {
   return 3.0 * pow(h-r, 2.0) / volume;
 }
 
-fn viscosity_kernel(r: f32, h: f32) -> f32 {
+// fn viscosity_kernel(r: f32, h: f32) -> f32 {
+//   if r > h {
+//     return 0.0;
+//   }
+
+//   let a1 = -r*r*r/(2*h*h*h);
+//   let a2 = r*r/(h*h);
+//   let a3 = h/(2*r);
+
+//   return (a1+a2+a3-1.0) * 15.0 / (radians(360.0)*pow(h,3.0));
+// }
+
+fn viscosity_kernel_laplace(dst: f32, h: f32) -> f32 {
+  let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  let a1 = -r*r*r/(2*h*h*h);
-  let a2 = r*r/(h*h);
-  let a3 = h/(2*r);
-
-  return (a1+a2+a3-1.0) * 15.0 / (radians(360.0)*pow(h,3.0));
+  return (h - r) * 45 / (radians(180.0) * pow(h,6.0));
 }
 
 fn z_order_hash(x: i32, y: i32) -> u32 {
@@ -245,7 +267,7 @@ fn z_order_hash(x: i32, y: i32) -> u32 {
 }
 
 fn get_cell_coord(pos: vec3f) -> vec3i {
-    return vec3i(floor(pos / sim.grid_size));
+    return vec3i(floor((pos * sim.scene_scale_factor) / sim.grid_size));
 }
 
 fn get_key_from_hash(hash: u32) -> u32 {

@@ -20,6 +20,8 @@ struct SimulationParameters {
   collision_damping: f32, 
   poly_kernel_radius: f32,
   spiky_kernel_radius: f32,
+  viscosity_kernel_radius: f32,
+  viscosity: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   bounding_box: BoundingBox,
@@ -30,7 +32,6 @@ struct SimulationParameters {
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(0) @binding(2) var<uniform> sim: SimulationParameters;
-@group(1) @binding(1) var<storage, read_write>  pressure_field: array<f32>;
 
 ///
 //Vertex
@@ -54,15 +55,10 @@ fn vs_main(
 -> VertexOutput {
     var out: VertexOutput;
 
-    let particle_pos = particle.position / sim.scene_scale_factor;
-    let pos = vertex.position + particle.position / sim.scene_scale_factor;
+    let pos = vertex.position + particle.position;
 
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
-    // if(distance(pos, particle_pos) == 0.0) {
-    //      out.color = vec4f(1.0, 0.0, 0.0, 1.0);
-    // } else {
-    //     out.color = particle.color;
-    // }
+
     out.color = particle.color;
     out.pos =  vec4<f32>(pos, 1.0);
 

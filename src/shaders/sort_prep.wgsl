@@ -18,6 +18,8 @@ struct SimulationParameters {
   collision_damping: f32, 
   poly_kernel_radius: f32,
   spiky_kernel_radius: f32,
+  viscosity_kernel_radius: f32,
+  viscosity: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   bounding_box: BoundingBox,
@@ -31,7 +33,7 @@ struct SimulationParameters {
 @group(1) @binding(1) var<storage, read_write> particle_id : array<u32>;
 @group(1) @binding(2) var<storage, read_write> cell_start : array<u32>;
 @group(2) @binding(2) var<uniform> sim: SimulationParameters;
-@group(3) @binding(2) var<storage, read_write> predicted_positions : array<vec3<f32>>;
+@group(3) @binding(1) var<storage, read_write> predicted_positions : array<vec3<f32>>;
 
 @compute @workgroup_size(64)
 fn calcHash(@builtin(global_invocation_id) global_invocation_id : vec3u) {
@@ -72,12 +74,13 @@ fn z_order_hash(x: i32, y: i32) -> u32 {
     // }
     let a = u32(x) * 15823;
     let b = u32(y) * 9737333;
+    //static const uint hashK3 = 440817757;
 
     return a + b;
 }
 
 fn get_cell_coord(pos: vec3f) -> vec3i {
-    return vec3i(floor(pos / sim.grid_size));
+    return vec3i(floor((pos * sim.scene_scale_factor) / sim.grid_size));
 }
 
 fn get_key_from_hash(hash: u32) -> u32 {

@@ -343,7 +343,7 @@ impl State {
         }
 
         {
-            //Precompute densities and pressures for each particle
+            //Precompute densities for each particle
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.dap_pipeline);
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);

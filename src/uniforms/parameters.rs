@@ -26,14 +26,17 @@ pub struct SimulationParameters {
     pub collision_damping: f32, 
     pub poly_kernel_radius: f32,
     pub spiky_kernel_radius: f32,
+    pub viscosity_kernel_radius: f32,
+    pub viscosity: f32,
     pub rest_density: f32,
     pub pressure_multiplier: f32,
+    _padding: [u32; 2],
     pub bounding_box: BoundingBoxUniform,
     pub grid_size: f32,
     pub scene_scale_factor: f32,
-    _padding: [u32; 2],
+    _padding2: [u32; 2],
     pub gravity: [f32; 3],
-    _padding2: u32
+    _padding3: u32
 }
 
 impl SimulationParameters {
@@ -52,7 +55,7 @@ impl Default for SimulationParameters {
         let width = 1600.0f32;
         let height = 900.0f32;
         let diagonal = (width * width + height * height).sqrt();
-        let scene_scale_factor = 50.0 / diagonal;
+        let scene_scale_factor = 35.0 / diagonal;
 
 
         let particle_mass = 1.0;
@@ -60,11 +63,13 @@ impl Default for SimulationParameters {
         let particles_amount = 10000;
         let collision_damping = 0.9;
         let poly_kernel_radius = 1.0;
-        let spiky_kernel_radius = 1.0;
-        let rest_density = 0.6;
-        let pressure_multiplier = 50.0;
+        let spiky_kernel_radius = 0.3;
+        let viscosity_kernel_radius = 1.0;
+        let viscosity = 0.01;
+        let rest_density = 1.57;
+        let pressure_multiplier = 250.0;
         let bounding_box = BoundingBoxUniform::new(Vector3::new(0.0, 0.0, 0.0),  Vector3::new(width, height, 1.0));
-        let grid_size = 1.0;
+        let grid_size = poly_kernel_radius;
         SimulationParameters {
             particle_mass,
             particle_radius,
@@ -72,14 +77,17 @@ impl Default for SimulationParameters {
             collision_damping,
             poly_kernel_radius,
             spiky_kernel_radius,
+            viscosity_kernel_radius,
+            viscosity,
             rest_density,
             pressure_multiplier,
             bounding_box,
             grid_size,
             scene_scale_factor,
-            gravity: [0.0, -9.8, 0.0],
-            _padding: [0, 0],
-            _padding2: 0
+            gravity: [0.0, -98.0, 0.0],
+            _padding3: 0,
+            _padding2: [0,0],
+            _padding: [0,0]
         }
     }
 }
@@ -112,7 +120,10 @@ pub struct ParametersControls {
     is_g_pressed: bool,
     is_p_pressed: bool,
     is_r_pressed: bool,
-    is_w_pressed: bool
+    is_w_pressed: bool,
+    is_z_pressed: bool,
+    is_v_pressed: bool,
+    is_b_pressed: bool,
 }
 
 impl ParametersControls {
@@ -166,6 +177,18 @@ impl ParametersControls {
                         self.is_w_pressed = is_pressed;
                         true
                     },
+                    KeyCode::KeyZ => {
+                        self.is_z_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyV => {
+                        self.is_v_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyB => {
+                        self.is_b_pressed = is_pressed;
+                        true
+                    },
                     _ => false,
                 }
             }
@@ -201,8 +224,17 @@ impl ParametersControls {
             params.rest_density += 0.01 * dir;
             println!("Rest density: {}", params.rest_density);
         } else if self.is_w_pressed  {
-            params.scene_scale_factor += 0.1 * dir;
+            params.scene_scale_factor += 0.001 * dir;
             println!("Scale factor: {}", params.scene_scale_factor);
+        } else if self.is_z_pressed  {
+            params.grid_size += 0.01 * dir;
+            println!("Grid size: {}", params.grid_size);
+        } else if self.is_v_pressed  {
+            params.viscosity += 0.01 * dir;
+            println!("Viscosity: {}", params.viscosity);
+        } else if self.is_b_pressed  {
+            params.viscosity_kernel_radius += 0.005 * dir;
+            println!("Viscosity kernel radius: {}", params.viscosity_kernel_radius);
         }
     }
 }

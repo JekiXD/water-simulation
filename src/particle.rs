@@ -37,7 +37,7 @@ impl Particle {
 
     pub fn circle_mesh() -> geometry::Mesh {
         let param = SIMULATION_PARAMETERS.lock().unwrap();
-        geometry::circle(param.particle_radius / param.scene_scale_factor, SEGMENTS)
+        geometry::circle(param.particle_radius, SEGMENTS)
     }
 }
 
@@ -81,11 +81,9 @@ impl ParticleRaw {
 pub struct ParticlesState {
     pub particles: Vec<Particle>,
     pub density_field: Vec<f32>,
-    pub pressure_field: Vec<f32>,
     pub predicted_positions: Vec<[f32;4]>,
     pub particles_buffer: wgpu::Buffer,
     pub density_field_buffer: wgpu::Buffer,
-    pub pressure_field_buffer: wgpu::Buffer,
     pub predicted_positions_buffer: wgpu::Buffer,
     pub particles_bind_group: wgpu::BindGroup,
     pub fields_bind_group: wgpu::BindGroup,
@@ -95,7 +93,7 @@ pub struct ParticlesState {
 
 impl ParticlesState {
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
-        let mut sim = SIMULATION_PARAMETERS.lock().unwrap();
+        let sim = SIMULATION_PARAMETERS.lock().unwrap();
         let screen_size = sim.bounding_box.dimensions;
 
         let mut particles = Vec::new();
@@ -115,10 +113,10 @@ impl ParticlesState {
             let x: f32 = ((i % particles_per_row) as f32 - particles_per_row as f32 / 2.0 + 0.5) * dis;
             let y: f32 = ((i / particles_per_row) as f32 - particles_per_col as f32 / 2.0 + 0.5) * dis;
             let position = start_pos + Vector3::new(x, y, 0.0);
-            particles.push(Particle::new(position * sim.scene_scale_factor, velocity, color));
+            particles.push(Particle::new(position, velocity, color));
         }
 
-        sim.apply_scale();
+        // sim.apply_scale();
 
         // println!("{particles_per_row}:{particles_per_col}");
         
@@ -127,13 +125,7 @@ impl ParticlesState {
         // }
 
         let density_field = vec![0.0; particles.len()];
-        let pressure_field = vec![0.0; particles.len()];
         let predicted_positions = vec![[0.0, 0.0, 0.0, 0.0]; particles.len()];
-
-        // for p in predicted_positions.iter() {
-        //     println!("Pos: {:?}", p);
-        // }
-        // println!("{}", predicted_positions.len());
 
         let particles_raw: Vec<_> = particles.iter().map(|p| p.into_raw()).collect();
 
@@ -149,13 +141,6 @@ impl ParticlesState {
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Density"),
                 contents: bytemuck::cast_slice(&density_field),
-                usage: wgpu::BufferUsages::STORAGE
-            }
-        );
-        let pressure_field_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Pressure"),
-                contents: bytemuck::cast_slice(&pressure_field),
                 usage: wgpu::BufferUsages::STORAGE
             }
         );
@@ -197,20 +182,9 @@ impl ParticlesState {
                     },
                     count: None,
                 },
-                //Pressure field
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::all(),
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
                 //Predicted positions
                 wgpu::BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 1,
                     visibility: wgpu::ShaderStages::all(),
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -244,10 +218,6 @@ impl ParticlesState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: pressure_field_buffer.as_entire_binding()
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
                     resource: predicted_positions_buffer.as_entire_binding()
                 },
             ]
@@ -256,11 +226,9 @@ impl ParticlesState {
         ParticlesState {
             particles,
             density_field,
-            pressure_field,
             predicted_positions,
             particles_buffer,
             density_field_buffer,
-            pressure_field_buffer,
             predicted_positions_buffer,
             particles_bind_group,
             fields_bind_group,

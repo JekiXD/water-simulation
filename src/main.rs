@@ -44,7 +44,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                         },
                     ..
                 } => elwt.exit(),
-                WindowEvent::Resized(new_size) => state.resize(*new_size),
+                WindowEvent::Resized(new_size) => {state.resize(*new_size);},
                 WindowEvent::ScaleFactorChanged { scale_factor, inner_size_writer } => { 
                     debug!("ScaleFactorChanged: {:?}, {:?}", scale_factor, inner_size_writer);
                     //TODO
