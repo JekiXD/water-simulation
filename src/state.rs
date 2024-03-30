@@ -31,12 +31,13 @@ pub struct State {
     particles_state: ParticlesState,
     circle_mesh_buffer: geometry::MeshBuffer,
     simulate_pipeline: wgpu::ComputePipeline,
-    dap_pipeline: wgpu::ComputePipeline,
+    d_pipeline: wgpu::ComputePipeline,
     sort_state: NeighbourSearchSortState,
     calc_hash_pipeline: wgpu::ComputePipeline,
     cell_start_pipeline: wgpu::ComputePipeline,
     param_controls: ParametersControls,
-    pre_pos_pipeline: wgpu::ComputePipeline
+    pre_pos_pipeline: wgpu::ComputePipeline,
+    sn_pipeline: wgpu::ComputePipeline
 }
 
 impl State {
@@ -187,11 +188,11 @@ impl State {
             entry_point: "simulate"
         });
 
-        let dap_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
-            label: Some("Density and pressure pipeline"),
+        let d_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Density pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &simulate_shader,
-            entry_point: "compute_density_and_pressure"
+            entry_point: "compute_density"
         });
 
         let pre_pos_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
@@ -199,6 +200,13 @@ impl State {
             layout: Some(&compute_pipeline_layout),
             module: &simulate_shader,
             entry_point: "predict_positions"
+        });
+
+        let sn_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Surface normals"),
+            layout: Some(&compute_pipeline_layout),
+            module: &simulate_shader,
+            entry_point: "compute_surface_normals"
         });
 
         //
@@ -248,12 +256,13 @@ impl State {
             particles_state,
             circle_mesh_buffer,
             simulate_pipeline,
-            dap_pipeline,
+            d_pipeline,
             sort_state,
             calc_hash_pipeline,
             cell_start_pipeline,
             param_controls,
-            pre_pos_pipeline
+            pre_pos_pipeline,
+            sn_pipeline
         }
     }
 
@@ -345,7 +354,18 @@ impl State {
         {
             //Precompute densities for each particle
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.dap_pipeline);
+            compute_pass.set_pipeline(&self.d_pipeline);
+            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
+            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+        }
+
+        {
+            //Find surface normals
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.sn_pipeline);
             compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
             compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
             compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);

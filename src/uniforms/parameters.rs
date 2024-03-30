@@ -25,12 +25,18 @@ pub struct SimulationParameters {
     pub particles_amount: u32,
     pub collision_damping: f32, 
     pub poly_kernel_radius: f32,
-    pub spiky_kernel_radius: f32,
+    pub pressure_kernel_radius: f32,
+    pub near_pressure_kernel_radius: f32,
     pub viscosity_kernel_radius: f32,
     pub viscosity: f32,
+    pub surface_tension: f32,
+    pub cohesion_coef: f32,
+    pub curvature_cef: f32, 
+    pub adhesion_cef: f32,
     pub rest_density: f32,
     pub pressure_multiplier: f32,
-    _padding: [u32; 2],
+    pub near_pressure_multiplier: f32,
+    //_padding: [u32; 1],
     pub bounding_box: BoundingBoxUniform,
     pub grid_size: f32,
     pub scene_scale_factor: f32,
@@ -39,55 +45,58 @@ pub struct SimulationParameters {
     _padding3: u32
 }
 
-impl SimulationParameters {
-    pub fn apply_scale(&mut self) {
-        self.particle_radius *= self.scene_scale_factor;
-
-        let dimensions: Vector3<f32> = self.bounding_box.dimensions.into();
-        self.bounding_box.dimensions = (dimensions * self.scene_scale_factor).into();
-
-        self.grid_size = 2.0 * self.particle_radius + self.poly_kernel_radius;
-    }
-}
-
 impl Default for SimulationParameters {
     fn default() -> Self {
         let width = 1600.0f32;
         let height = 900.0f32;
         let diagonal = (width * width + height * height).sqrt();
-        let scene_scale_factor = 35.0 / diagonal;
+        let scene_scale_factor = 50.0 / diagonal;
 
 
         let particle_mass = 1.0;
         let particle_radius = 3.0;
         let particles_amount = 10000;
         let collision_damping = 0.9;
-        let poly_kernel_radius = 1.0;
-        let spiky_kernel_radius = 0.3;
-        let viscosity_kernel_radius = 1.0;
-        let viscosity = 0.01;
-        let rest_density = 1.57;
-        let pressure_multiplier = 250.0;
+        let poly_kernel_radius = 1.5;
+        let pressure_kernel_radius = 1.3;
+        let near_pressure_kernel_radius = 0.83;
+        let viscosity_kernel_radius = 0.5;
+        let viscosity = 0.1;
+        let surface_tension = 1.0;
+        let cohesion_coef = 50.0;
+        let curvature_cef = 50.0; 
+        let adhesion_cef = 1.0;
+        let rest_density = 18.0;
+        let pressure_multiplier = 1000.0;
+        let near_pressure_multiplier = 300.0;
         let bounding_box = BoundingBoxUniform::new(Vector3::new(0.0, 0.0, 0.0),  Vector3::new(width, height, 1.0));
-        let grid_size = poly_kernel_radius;
+        let grid_size = 2.0;
+        let gravity = [0.0, -10.0, 0.0];
+
         SimulationParameters {
             particle_mass,
             particle_radius,
             particles_amount,
             collision_damping,
             poly_kernel_radius,
-            spiky_kernel_radius,
+            pressure_kernel_radius,
+            near_pressure_kernel_radius,
             viscosity_kernel_radius,
             viscosity,
+            surface_tension,
+            cohesion_coef,
+            curvature_cef,
+            adhesion_cef,
             rest_density,
             pressure_multiplier,
+            near_pressure_multiplier,
             bounding_box,
             grid_size,
             scene_scale_factor,
-            gravity: [0.0, -98.0, 0.0],
+            gravity,
             _padding3: 0,
             _padding2: [0,0],
-            _padding: [0,0]
+            //_padding: [0]
         }
     }
 }
@@ -124,6 +133,12 @@ pub struct ParametersControls {
     is_z_pressed: bool,
     is_v_pressed: bool,
     is_b_pressed: bool,
+    is_t_pressed: bool,
+    is_y_pressed: bool, 
+    is_u_pressed: bool, 
+    is_i_pressed: bool,
+    is_n_pressed: bool,
+    is_x_pressed: bool
 }
 
 impl ParametersControls {
@@ -189,6 +204,30 @@ impl ParametersControls {
                         self.is_b_pressed = is_pressed;
                         true
                     },
+                    KeyCode::KeyT => {
+                        self.is_t_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyY => {
+                        self.is_y_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyU => {
+                        self.is_u_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyI => {
+                        self.is_i_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyN => {
+                        self.is_n_pressed = is_pressed;
+                        true
+                    },
+                    KeyCode::KeyX => {
+                        self.is_x_pressed = is_pressed;
+                        true
+                    },
                     _ => false,
                 }
             }
@@ -218,13 +257,16 @@ impl ParametersControls {
             params.poly_kernel_radius += 0.005 * dir;
             println!("Poly kernel radius: {}", params.poly_kernel_radius);
         } else if self.is_s_pressed  {
-            params.spiky_kernel_radius += 0.005 * dir;
-            println!("Spiky kernel radius: {}", params.spiky_kernel_radius);
+            params.pressure_kernel_radius += 0.005 * dir;
+            println!("Pressure kernel radius: {}", params.pressure_kernel_radius);
+        } else if self.is_x_pressed  {
+            params.near_pressure_kernel_radius += 0.005 * dir;
+            println!("Near pressure kernel radius: {}", params.near_pressure_kernel_radius);
         } else if self.is_r_pressed  {
-            params.rest_density += 0.01 * dir;
+            params.rest_density += 0.1 * dir;
             println!("Rest density: {}", params.rest_density);
         } else if self.is_w_pressed  {
-            params.scene_scale_factor += 0.001 * dir;
+            params.scene_scale_factor += 0.0001 * dir;
             println!("Scale factor: {}", params.scene_scale_factor);
         } else if self.is_z_pressed  {
             params.grid_size += 0.01 * dir;
@@ -235,6 +277,21 @@ impl ParametersControls {
         } else if self.is_b_pressed  {
             params.viscosity_kernel_radius += 0.005 * dir;
             println!("Viscosity kernel radius: {}", params.viscosity_kernel_radius);
+        } else if self.is_t_pressed  {
+            params.surface_tension += 0.1 * dir;
+            println!("Surface tension: {}", params.surface_tension);
+        } else if self.is_y_pressed  {
+            params.cohesion_coef += 0.1 * dir;
+            println!("Cohesion coef: {}", params.cohesion_coef);
+        } else if self.is_u_pressed  {
+            params.curvature_cef += 0.1 * dir;
+            println!("Curvature cef: {}", params.curvature_cef);
+        } else if self.is_i_pressed  {
+            params.adhesion_cef += 0.1 * dir;
+            println!("Adhesion coef: {}", params.adhesion_cef);
+        } else if self.is_n_pressed  {
+            params.near_pressure_multiplier += 0.1 * dir;
+            println!("Near pressure: {}", params.near_pressure_multiplier);
         }
     }
 }

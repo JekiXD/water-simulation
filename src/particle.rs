@@ -45,9 +45,9 @@ impl Particle {
 #[derive(Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ParticleRaw {
     position: [f32; 3],
-    _padding: u32,
+    _padding: f32,
     velocity: [f32; 3],
-    _padding2: u32,
+    _padding2: f32,
     color: [f32; 4]
 }
 
@@ -80,11 +80,18 @@ impl ParticleRaw {
 
 pub struct ParticlesState {
     pub particles: Vec<Particle>,
+
     pub density_field: Vec<f32>,
+    pub near_density_field: Vec<f32>,
     pub predicted_positions: Vec<[f32;4]>,
+    pub surface_normals: Vec<[f32;4]>,
+
     pub particles_buffer: wgpu::Buffer,
     pub density_field_buffer: wgpu::Buffer,
+    pub near_density_field_buffer: wgpu::Buffer,
     pub predicted_positions_buffer: wgpu::Buffer,
+    pub surface_normals_buffer: wgpu::Buffer,
+
     pub particles_bind_group: wgpu::BindGroup,
     pub fields_bind_group: wgpu::BindGroup,
     pub particles_bind_group_layout: wgpu::BindGroupLayout,
@@ -120,12 +127,14 @@ impl ParticlesState {
 
         // println!("{particles_per_row}:{particles_per_col}");
         
-        // for i in 0..10 {
+        // for i in 0..particles.len() {
         //     println!("{i}:{:?}", particles[i]);
         // }
 
         let density_field = vec![0.0; particles.len()];
+        let near_density_field = vec![0.0; particles.len()];
         let predicted_positions = vec![[0.0, 0.0, 0.0, 0.0]; particles.len()];
+        let surface_normals = vec![[0.0, 0.0, 0.0, 0.0]; particles.len()];
 
         let particles_raw: Vec<_> = particles.iter().map(|p| p.into_raw()).collect();
 
@@ -144,6 +153,13 @@ impl ParticlesState {
                 usage: wgpu::BufferUsages::STORAGE
             }
         );
+        let near_density_field_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Near Density"),
+                contents: bytemuck::cast_slice(&near_density_field),
+                usage: wgpu::BufferUsages::STORAGE
+            }
+        );
         let predicted_positions_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Predicted position"),
@@ -151,6 +167,14 @@ impl ParticlesState {
                 usage: wgpu::BufferUsages::STORAGE
             }
         );
+        let surface_normals_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Surface normal"),
+                contents: bytemuck::cast_slice(&surface_normals),
+                usage: wgpu::BufferUsages::STORAGE
+            }
+        );
+        
 
         let particles_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -193,6 +217,28 @@ impl ParticlesState {
                     },
                     count: None,
                 },
+                //Surface normal
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::all(),
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                 //Near density
+                 wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::all(),
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
             label: Some("Fields bind group layout")
         });
@@ -220,16 +266,28 @@ impl ParticlesState {
                     binding: 1,
                     resource: predicted_positions_buffer.as_entire_binding()
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: surface_normals_buffer.as_entire_binding()
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: near_density_field_buffer.as_entire_binding()
+                },
             ]
         });
 
         ParticlesState {
             particles,
             density_field,
+            near_density_field,
             predicted_positions,
+            surface_normals,
             particles_buffer,
             density_field_buffer,
+            near_density_field_buffer,
             predicted_positions_buffer,
+            surface_normals_buffer,
             particles_bind_group,
             fields_bind_group,
             particles_bind_group_layout,
@@ -349,7 +407,6 @@ pub struct NeighbourSearchSortState {
 impl NeighbourSearchSortState {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, subgroup_size: u32) -> Self {
         let sim = SIMULATION_PARAMETERS.lock().unwrap();
-
         let grid_state = NeighbourSearchGridState::new(device, sim.particles_amount);
         let sorter = wgpu_sort::GPUSorter::new(device, subgroup_size);
         let sort_buffers = sorter.create_sort_buffers(device, NonZeroU32::new(sim.particles_amount).unwrap());

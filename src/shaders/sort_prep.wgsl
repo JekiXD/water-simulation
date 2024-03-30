@@ -17,11 +17,17 @@ struct SimulationParameters {
   particles_amount: u32,
   collision_damping: f32, 
   poly_kernel_radius: f32,
-  spiky_kernel_radius: f32,
+  pressure_kernel_radius: f32,
+  near_pressure_kernel_radius: f32,
   viscosity_kernel_radius: f32,
   viscosity: f32,
+  surface_tension: f32,
+  cohesion_coef: f32,
+  curvature_cef: f32, 
+  adhesion_cef: f32,
   rest_density: f32,
   pressure_multiplier: f32,
+  near_pressure_multiplier: f32,
   bounding_box: BoundingBox,
   grid_size: f32,
   scene_scale_factor: f32,
@@ -80,7 +86,7 @@ fn z_order_hash(x: i32, y: i32) -> u32 {
 }
 
 fn get_cell_coord(pos: vec3f) -> vec3i {
-    return vec3i(floor((pos * sim.scene_scale_factor) / sim.grid_size));
+    return vec3i((pos * sim.scene_scale_factor) / sim.grid_size);
 }
 
 fn get_key_from_hash(hash: u32) -> u32 {
