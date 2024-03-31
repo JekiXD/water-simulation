@@ -1,18 +1,5 @@
 use cgmath::{Vector3, Vector4};
 
-pub fn get_screen_scquare_vertices(config: &wgpu::SurfaceConfiguration) -> [VertexRaw; 6] {
-    let width = config.width as f32;
-    let height = config.height as f32;
-    [   
-        VertexRaw { position: [0.0, 0.0, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-        VertexRaw { position: [width, 0.0, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-        VertexRaw { position: [width, height, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-        VertexRaw { position: [0.0, 0.0, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-        VertexRaw { position: [width, height, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-        VertexRaw { position: [0.0, height, 0.0], color: [0.2, 0.2, 0.2, 0.1]},
-    ]
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
     pub position: Vector3<f32>,

@@ -93,7 +93,6 @@ fn compute_accel(idx: u32) -> vec3<f32>{
   var pressure_force = vec3<f32>(0.0, 0.0, 0.0);
   var viscosity_force = vec3<f32>(0.0, 0.0, 0.0);
 
-  var surface_normal = vec3<f32>(0.0, 0.0, 0.0);
   var surface_curvature = 0.0;
 
   var surface_tension = vec3<f32>(0.0, 0.0, 0.0);
@@ -149,8 +148,7 @@ fn compute_accel(idx: u32) -> vec3<f32>{
         viscosity_force += visc;
 
         //Surface tension
-        // surface_normal += sim.cohesion_coef * dir * sim.particle_mass * poly_d1_kernel(distance, 0.3) / p2_density;
-        // surface_curvature += sim.curvature_cef * sim.particle_mass * poly_laplace_kernel(distance, 0.3) / p2_density;
+        //surface_curvature += sim.curvature_cef * sim.particle_mass * poly_laplace_kernel(distance, 1.0) / p2_density;
 
         let cohesion_force = -dir * sim.cohesion_coef * pow(sim.particle_mass, 2.0) * cohesion_kernel(distance, 1.0);
         let curvature_force = -sim.curvature_cef * sim.particle_mass * (p1_normal - p2_normal);
@@ -159,9 +157,9 @@ fn compute_accel(idx: u32) -> vec3<f32>{
       }
     }
   }
-
-  // if(length(surface_normal) > 0.01) {
-  //   surface_force = -sim.surface_tension * surface_curvature * normalize(surface_normal);
+  // var surface_force = vec3f(0.0);
+  // if(length(p1_normal) > 0.01) {
+  //   surface_force = -sim.surface_tension * surface_curvature * normalize(p1_normal);
   // }
 
   return (viscosity_force + surface_tension - pressure_force) / p1_density;
@@ -219,7 +217,6 @@ fn compute_density(@builtin(global_invocation_id) global_invocation_id : vec3u) 
 
         //Calulate density
         let vector = p2_pos - p1_pos;
-        //let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
         let distance = length(vector);
 
         density += sim.particle_mass * density_2_kernel(distance, sim.poly_kernel_radius);
@@ -254,21 +251,22 @@ fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id :
         let cell = cell_hash[i];
         if(cell != hash) { break; }
 
-        
         let id2 = particle_id[i];
         if (id2 == idx) { continue; }
 
         let p2_pos = predicted_positions[id2];
 
-        //Calulate dnesity
+        //Calulate surface normals
         let vector = p2_pos - p1_pos;
-        //let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
         let distance = length(vector);
-        var dir = normalize(vector);
+        var dir = vec3f(0.0);
 
-        if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
+        if distance != 0.0 { dir = normalize(vector); }
 
-        let normal_scale = sim.surface_tension * sim.particle_mass * poly_d1_kernel(distance, 1.0) / density_field[id2];
+        // if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
+        // else { dir = normalize(vector);}
+
+        let normal_scale = sim.particle_mass * poly_d1_kernel(distance, 1.0) / density_field[id2];
         surface_normal += dir * normal_scale;
       }
     }
@@ -382,9 +380,10 @@ fn cohesion_kernel(dst: f32, h: f32) -> f32 {
 fn adhesion_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
 
-  let k = 0.007 / pow(h, 3.25);
+  let k = 0.007 / pow(h, 0.25);
+  let e = 0.001;
 
-  if (2*r > h && r <= h) {
+  if 2*r > h+e && r <= h-e {
     return k * pow(-4.0*r*r/h + 6*r - 2*h, 0.25);
   } 
 

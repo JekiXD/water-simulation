@@ -12,7 +12,6 @@ use cgmath::prelude::*;
 use crate::particle::NeighbourSearchSortState;
 use crate::particle::ParticlesState;
 use crate::particle::{Particle, ParticleRaw};
-use crate::uniforms::parameters::ParametersControls;
 use crate::uniforms::parameters::SIMULATION_PARAMETERS;
 use crate::uniforms::UniformState;
 use crate::vertex::*;
@@ -35,7 +34,6 @@ pub struct State {
     sort_state: NeighbourSearchSortState,
     calc_hash_pipeline: wgpu::ComputePipeline,
     cell_start_pipeline: wgpu::ComputePipeline,
-    param_controls: ParametersControls,
     pre_pos_pipeline: wgpu::ComputePipeline,
     sn_pipeline: wgpu::ComputePipeline
 }
@@ -242,8 +240,6 @@ impl State {
             entry_point: "findCellStart"
         });
 
-        let param_controls = ParametersControls::new();
-
         Self {
             window,
             surface,
@@ -260,7 +256,6 @@ impl State {
             sort_state,
             calc_hash_pipeline,
             cell_start_pipeline,
-            param_controls,
             pre_pos_pipeline,
             sn_pipeline
         }
@@ -287,13 +282,12 @@ impl State {
 
                 true
             },
-            _ => self.param_controls.process_events(event)
+            _ => false
         }
     }
 
     pub fn update(&mut self) {
         self.uniform_state.update(&self.queue);
-        self.param_controls.update(&mut SIMULATION_PARAMETERS.lock().unwrap());
         self.queue.write_buffer(&self.uniform_state.simulation_parameters.buffer, 0, bytemuck::cast_slice(&[*SIMULATION_PARAMETERS.lock().unwrap()]));
     }
 
