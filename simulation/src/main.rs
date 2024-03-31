@@ -1,6 +1,4 @@
 use std::{io::Read, net::TcpListener, sync::Arc};
-
-use interprocess::local_socket::LocalSocketListener;
 use log::debug;
 use winit::{
     event::*, event_loop::EventLoop, keyboard::{KeyCode, PhysicalKey}, window::WindowBuilder
@@ -79,10 +77,10 @@ fn ui_listener() {
 
     let listener = res.unwrap();
     std::thread::spawn(move || {
+        let mut buffer = vec![0u8; std::mem::size_of::<settings::SimulationParameters>()];
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
-                    let mut buffer = vec![0u8; std::mem::size_of::<settings::SimulationParameters>()];
                     match stream.read_exact(&mut buffer) {
                         Ok(_) => {
                             match bincode::deserialize::<settings::SimulationParameters>(&buffer) {

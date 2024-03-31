@@ -9,13 +9,13 @@ impl FrameTime {
     fn new() -> Self {
         Self {
             last_printed_instant: web_time::Instant::now(),
-            elapsed_secs: 0.0// 1.0 / 60.0,
+            elapsed_secs:  1.0 / 120.0,
         }
     }
 
     fn update(&mut self) {
         let new_instant = web_time::Instant::now();
-        self.elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
+       // self.elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
         self.last_printed_instant = new_instant;
     }
 }

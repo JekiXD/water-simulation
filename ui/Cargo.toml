@@ -9,7 +9,6 @@ edition = "2021"
 settings = { path = "../settings"}
 
 eframe = "0.27.1"
-interprocess = "1.2.1"
 bincode = "1.3.3"
 
 env_logger = { version = "0.10", default-features = false, features = [
