@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_resizable(false)
-            .with_inner_size([360.0, 540.0]),
+            .with_inner_size([360.0, 560.0]),
         ..Default::default()
     };
 
@@ -91,6 +91,10 @@ impl SettingsUI {
 
         ui.label("Rest density:");
         ui.add(egui::DragValue::new(&mut self.settings.rest_density).speed(0.1).clamp_range(0.0..=1000.0));
+        ui.end_row();
+
+        ui.label("Intensity of vorticity:");
+        ui.add(egui::DragValue::new(&mut self.settings.vorticity_inensity).speed(0.01).clamp_range(0.0..= 1.0));
         ui.end_row();
 
         ui.label("Pressure multiplier:");

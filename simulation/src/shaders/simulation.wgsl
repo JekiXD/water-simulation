@@ -162,18 +162,18 @@ fn compute_accel(idx: u32) -> vec3<f32>{
         adhesion_force += dir * sim.adhesion_cef * pow(sim.particle_mass, 2.0) * adhesion_kernel(distance, sim.adhesion_kernel_radius);
 
         //Calculate corrective vorticity
-        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
+        let vort_grad = vec3f(vec2f(d1_spiky_2_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
         corrective_vorticity += sim.particle_mass * length(p2_vorticity) * vort_grad / p2_density;
       }
     }
   }
 
   var vorticity_force = vec3f(0.0);
-  if length(corrective_vorticity) >= 1.0e-7 {
+  if length(corrective_vorticity) != 0.0 {
     vorticity_force = sim.vorticity_inensity * cross(normalize(corrective_vorticity), p1_vorticity);
   }
 
-  return (viscosity_force + adhesion_force + surface_tension_force - pressure_force) / p1_density;
+  return (vorticity_force + viscosity_force + adhesion_force + surface_tension_force - pressure_force) / p1_density;
 }
 
 fn compute_collisions(particle: ptr<function, Particle>)  {
@@ -280,7 +280,7 @@ fn compute_intermediate_values(@builtin(global_invocation_id) global_invocation_
         surface_normal += dir * sim.particle_mass * d1_poly_kernel(distance, sim.surface_normal_kernel_radius) / density_field[id2];
 
         //Calculate vorticity
-        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
+        let vort_grad = vec3f(vec2f(d1_spiky_2_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
         vorticity += -sim.particle_mass * cross(vel_vector, vort_grad) / density_field[id2];
       }
     }

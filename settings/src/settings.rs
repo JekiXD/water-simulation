@@ -53,12 +53,12 @@ impl Default for SimulationParameters {
         let curvature_cef = 1.0; 
         let adhesion_cef = 1.0;
         let rest_density = 35.0;
-        let pressure_multiplier = 700.0;
+        let pressure_multiplier = 1300.0;
         let near_pressure_multiplier = 110.0;
         let bounding_box = BoundingBoxUniform::new(Vector3::new(0.0, 0.0, 0.0),  Vector3::new(width, height, 1.0));
         let grid_size = 0.6;
         let gravity = [0.0, -10.0, 0.0];
-        let vorticity_inensity = 0.1;
+        let vorticity_inensity = 0.4;
 
         let poly_kernel_radius = grid_size;
         let pressure_kernel_radius = grid_size;
