@@ -38,23 +38,23 @@ impl Default for SimulationParameters {
 
 
         let particle_mass = 1.0;
-        let particle_radius = 3.0;
-        let particles_amount = 10000;
+        let particle_radius = 2.0;
+        let particles_amount = 15000;
         let collision_damping = 0.9;
-        let poly_kernel_radius = 1.5;
-        let pressure_kernel_radius = 1.3;
-        let near_pressure_kernel_radius = 0.83;
-        let viscosity_kernel_radius = 0.5;
-        let viscosity = 0.1;
+        let poly_kernel_radius = 0.6;
+        let pressure_kernel_radius = 0.6;
+        let near_pressure_kernel_radius = 0.6;
+        let viscosity_kernel_radius = 0.6;
+        let viscosity = 0.05;
         let surface_tension = 1.0;
         let cohesion_coef = 1.0;
         let curvature_cef = 1.0; 
         let adhesion_cef = 1.0;
-        let rest_density = 18.0;
-        let pressure_multiplier = 1000.0;
-        let near_pressure_multiplier = 300.0;
+        let rest_density = 35.0;
+        let pressure_multiplier = 700.0;
+        let near_pressure_multiplier = 110.0;
         let bounding_box = BoundingBoxUniform::new(Vector3::new(0.0, 0.0, 0.0),  Vector3::new(width, height, 1.0));
-        let grid_size = 2.0;
+        let grid_size = 1.0;
         let gravity = [0.0, -10.0, 0.0];
 
         SimulationParameters {
@@ -88,17 +88,17 @@ impl Default for SimulationParameters {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable, Serialize, Deserialize)]
 pub struct BoundingBoxUniform{
-    pub position: [f32; 3],
+    pub position1: [f32; 3],
     _padding: u32,
-    pub dimensions: [f32; 3],
+    pub position2: [f32; 3],
     _padding1: u32,
 }
 
 impl BoundingBoxUniform {
     pub fn new(position: Vector3<f32>, dimensions: Vector3<f32>) -> Self {
         BoundingBoxUniform {
-            position: position.into(),
-            dimensions: dimensions.into(),
+            position1: position.into(),
+            position2: dimensions.into(),
             ..Default::default()
         }
     }

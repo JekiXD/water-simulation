@@ -2,7 +2,7 @@
 members = [ 
     "settings", 
     "simulation",
-    "ui"
+    "settings_ui"
 ]
 
 [package]

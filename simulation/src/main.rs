@@ -15,7 +15,7 @@ mod uniforms;
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new().unwrap();
-    let size = SIMULATION_PARAMETERS.lock().unwrap().bounding_box.dimensions;
+    let size = SIMULATION_PARAMETERS.lock().unwrap().bounding_box.position2;
     let window = WindowBuilder::new()
     .with_inner_size(winit::dpi::LogicalSize { width: size[0], height: size[1]})
     .with_position(winit::dpi::LogicalPosition {x: 150, y: 50})

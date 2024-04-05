@@ -61,10 +61,9 @@ fn vs_main(
 -> VertexOutput {
     var out: VertexOutput;
 
-    let pos = vertex.position + particle.position;
+    let pos = vertex.position * sim.particle_radius + particle.position;
 
     out.clip_position = camera.view_proj * vec4<f32>(pos, 1.0);
-
     out.color = particle.color;
     out.pos =  vec4<f32>(pos, 1.0);
 

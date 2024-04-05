@@ -1,5 +1,3 @@
-use wgpu::QUERY_SET_MAX_QUERIES;
-
 pub struct FrameTime {
     last_printed_instant: web_time::Instant,
     elapsed_secs: f32,
@@ -15,7 +13,7 @@ impl FrameTime {
 
     fn update(&mut self) {
         let new_instant = web_time::Instant::now();
-       // self.elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
+        //self.elapsed_secs = (new_instant - self.last_printed_instant).as_secs_f32();
         self.last_printed_instant = new_instant;
     }
 }

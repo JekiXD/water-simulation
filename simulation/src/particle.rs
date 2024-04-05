@@ -36,8 +36,7 @@ impl Particle {
     }
 
     pub fn circle_mesh() -> geometry::Mesh {
-        let param = SIMULATION_PARAMETERS.lock().unwrap();
-        geometry::circle(param.particle_radius, SEGMENTS)
+        geometry::circle(1.0, SEGMENTS)
     }
 }
 
@@ -81,16 +80,12 @@ impl ParticleRaw {
 pub struct ParticlesState {
     pub particles: Vec<Particle>,
 
-    pub density_field: Vec<f32>,
-    pub near_density_field: Vec<f32>,
-    pub predicted_positions: Vec<[f32;4]>,
-    pub surface_normals: Vec<[f32;4]>,
-
     pub particles_buffer: wgpu::Buffer,
     pub density_field_buffer: wgpu::Buffer,
     pub near_density_field_buffer: wgpu::Buffer,
-    pub predicted_positions_buffer: wgpu::Buffer,
+    pub predicted_buffer: wgpu::Buffer,
     pub surface_normals_buffer: wgpu::Buffer,
+    pub vorticity_buffer: wgpu::Buffer,
 
     pub particles_bind_group: wgpu::BindGroup,
     pub fields_bind_group: wgpu::BindGroup,
@@ -101,7 +96,7 @@ pub struct ParticlesState {
 impl ParticlesState {
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
         let sim = SIMULATION_PARAMETERS.lock().unwrap();
-        let screen_size = sim.bounding_box.dimensions;
+        let screen_size = sim.bounding_box.position2;
 
         let mut particles = Vec::new();
 
@@ -123,21 +118,8 @@ impl ParticlesState {
             particles.push(Particle::new(position, velocity, color));
         }
 
-        // sim.apply_scale();
-
-        // println!("{particles_per_row}:{particles_per_col}");
-        
-        // for i in 0..particles.len() {
-        //     println!("{i}:{:?}", particles[i]);
-        // }
-
-        let density_field = vec![0.0; particles.len()];
-        let near_density_field = vec![0.0; particles.len()];
-        let predicted_positions = vec![[0.0, 0.0, 0.0, 0.0]; particles.len()];
-        let surface_normals = vec![[0.0, 0.0, 0.0, 0.0]; particles.len()];
-
         let particles_raw: Vec<_> = particles.iter().map(|p| p.into_raw()).collect();
-
+        
         let particles_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Particles"),
@@ -146,35 +128,42 @@ impl ParticlesState {
             }
         );
 
-        let density_field_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Density"),
-                contents: bytemuck::cast_slice(&density_field),
-                usage: wgpu::BufferUsages::STORAGE
+        let density_field_buffer = device.create_buffer(&wgpu::BufferDescriptor{
+            label: Some("Density buffer"),
+            size: (std::mem::size_of::<f32>() * particles.len()) as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false
+        });
+        let near_density_field_buffer = device.create_buffer(&wgpu::BufferDescriptor{
+            label: Some("Near Density buffer"),
+            size: (std::mem::size_of::<f32>() * particles.len()) as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false
+        });
+        let predicted_buffer = device.create_buffer(
+            &wgpu::BufferDescriptor {
+                label: Some("Predicted buffer"),
+                size: (std::mem::size_of::<[f32; 8]>() * particles.len()) as u64,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false
             }
         );
-        let near_density_field_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Near Density"),
-                contents: bytemuck::cast_slice(&near_density_field),
-                usage: wgpu::BufferUsages::STORAGE
+        let surface_normals_buffer = device.create_buffer(
+            &wgpu::BufferDescriptor {
+                label: Some("Surface normal buffer"),
+                size: (std::mem::size_of::<[f32; 4]>() * particles.len()) as u64,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false
             }
         );
-        let predicted_positions_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Predicted position"),
-                contents: bytemuck::cast_slice(&predicted_positions),
-                usage: wgpu::BufferUsages::STORAGE
+        let vorticity_buffer = device.create_buffer(
+            &wgpu::BufferDescriptor {
+                label: Some("Vorticity buffer"),
+                size: (std::mem::size_of::<[f32; 4]>() * particles.len()) as u64,
+                usage: wgpu::BufferUsages::STORAGE,
+                mapped_at_creation: false
             }
-        );
-        let surface_normals_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Surface normal"),
-                contents: bytemuck::cast_slice(&surface_normals),
-                usage: wgpu::BufferUsages::STORAGE
-            }
-        );
-        
+        );     
 
         let particles_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -228,9 +217,20 @@ impl ParticlesState {
                     },
                     count: None,
                 },
-                 //Near density
-                 wgpu::BindGroupLayoutEntry {
+                //Near density
+                wgpu::BindGroupLayoutEntry {
                     binding: 3,
+                    visibility: wgpu::ShaderStages::all(),
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                //Vorticity
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
                     visibility: wgpu::ShaderStages::all(),
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: false },
@@ -264,7 +264,7 @@ impl ParticlesState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: predicted_positions_buffer.as_entire_binding()
+                    resource: predicted_buffer.as_entire_binding()
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -274,20 +274,21 @@ impl ParticlesState {
                     binding: 3,
                     resource: near_density_field_buffer.as_entire_binding()
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: vorticity_buffer.as_entire_binding()
+                },
             ]
         });
 
         ParticlesState {
             particles,
-            density_field,
-            near_density_field,
-            predicted_positions,
-            surface_normals,
             particles_buffer,
             density_field_buffer,
             near_density_field_buffer,
-            predicted_positions_buffer,
+            predicted_buffer,
             surface_normals_buffer,
+            vorticity_buffer,
             particles_bind_group,
             fields_bind_group,
             particles_bind_group_layout,

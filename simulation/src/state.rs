@@ -219,9 +219,9 @@ impl State {
             label: Some("Sort preperation pipeline layout"), 
             bind_group_layouts: &[
                 &particles_state.particles_bind_group_layout,
-                &sort_state.grid_state.bind_group_layout,
+                &particles_state.fields_bind_group_layout,
                 &uniform_state.bind_group_layout,
-                &particles_state.fields_bind_group_layout
+                &sort_state.grid_state.bind_group_layout,
             ], 
             push_constant_ranges: &[]
         });
@@ -299,34 +299,22 @@ impl State {
             label: Some("Render Encoder"),
         });
 
-        let sim = SIMULATION_PARAMETERS.lock().unwrap();
-
-        {
-            encoder.clear_buffer(&self.sort_state.grid_state.key_cell_hash_buffer, 0, None);
-            encoder.clear_buffer(&self.sort_state.grid_state.value_particle_id_buffer, 0, None);
-            encoder.clear_buffer(&self.sort_state.grid_state.cell_start_buffer, 0, None);
-        }
+        let particles_amount = SIMULATION_PARAMETERS.lock().unwrap().particles_amount;
 
         {
             //Predict particle's positions
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.pre_pos_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         {
             //Prepare data for the sort
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.calc_hash_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         {
@@ -338,44 +326,32 @@ impl State {
             //Find start for each cell in the grid
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.cell_start_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         {
             //Precompute densities for each particle
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.d_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         {
             //Find surface normals
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.sn_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         {
             //Simulate
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.simulate_pipeline);
-            compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
-            compute_pass.dispatch_workgroups(sim.particles_amount.div_ceil(64), 1, 1);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
 
         
@@ -411,5 +387,12 @@ impl State {
         output.present();
 
         Ok(())
+    }
+
+    fn set_compute_bind_groups<'cp>(&'cp self, compute_pass: &mut wgpu::ComputePass<'cp>) {
+        compute_pass.set_bind_group(0, &self.particles_state.particles_bind_group, &[]);
+        compute_pass.set_bind_group(1, &self.particles_state.fields_bind_group, &[]);
+        compute_pass.set_bind_group(2, &self.uniform_state.bind_group, &[]);
+        compute_pass.set_bind_group(3, &self.sort_state.grid_state.bind_group, &[]);
     }
 }

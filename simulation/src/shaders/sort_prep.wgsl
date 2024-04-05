@@ -34,19 +34,24 @@ struct SimulationParameters {
   gravity: vec3<f32>
 }
 
+struct Predicted {
+    position: vec3<f32>,
+    velocity: vec3<f32>
+}
+
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
-@group(1) @binding(0) var<storage, read_write> cell_hash : array<u32>;
-@group(1) @binding(1) var<storage, read_write> particle_id : array<u32>;
-@group(1) @binding(2) var<storage, read_write> cell_start : array<u32>;
+@group(1) @binding(1) var<storage, read_write> predicted : array<Predicted>;
 @group(2) @binding(2) var<uniform> sim: SimulationParameters;
-@group(3) @binding(1) var<storage, read_write> predicted_positions : array<vec3<f32>>;
+@group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
+@group(3) @binding(1) var<storage, read_write> particle_id : array<u32>;
+@group(3) @binding(2) var<storage, read_write> cell_start : array<u32>;
 
 @compute @workgroup_size(64)
 fn calcHash(@builtin(global_invocation_id) global_invocation_id : vec3u) {
     let idx = global_invocation_id.x;
     if(idx >= sim.particles_amount) { return; }
 
-    let pos = get_cell_coord(predicted_positions[idx]);
+    let pos = get_cell_coord(predicted[idx].position);
     let hash = get_key_from_hash(z_order_hash(pos.x, pos.y));
     cell_hash[idx] = hash;
     particle_id[idx] = idx;

@@ -20,9 +20,14 @@ struct Particle {
     color: vec4<f32>
 }
 
+struct Predicted {
+    position: vec3<f32>,
+    velocity: vec3<f32>
+}
+
 struct BoundingBox {
-  position: vec3<f32>,
-  dimensions: vec3<f32>,
+  position1: vec3<f32>,
+  position2: vec3<f32>,
 }
 
 struct SimulationParameters {
@@ -50,9 +55,10 @@ struct SimulationParameters {
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
 @group(1) @binding(0) var<storage, read_write> density_field : array<f32>;
-@group(1) @binding(1) var<storage, read_write> predicted_positions : array<vec3<f32>>;
+@group(1) @binding(1) var<storage, read_write> predicted : array<Predicted>;
 @group(1) @binding(2) var<storage, read_write> surface_normals : array<vec3<f32>>;
 @group(1) @binding(3) var<storage, read_write> near_density_field : array<f32>;
+@group(1) @binding(4) var<storage, read_write> vorticity_field : array<vec3<f32>>;
 @group(2) @binding(1) var<uniform> elapsed_secs: f32;
 @group(2) @binding(2) var<uniform> sim: SimulationParameters;
 @group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
@@ -66,10 +72,8 @@ fn predict_positions(@builtin(global_invocation_id) global_invocation_id : vec3u
 
   var particle = particles[idx];
   //Apply gravity
-  particle.velocity += elapsed_secs * sim.gravity / sim.scene_scale_factor;
-  predicted_positions[idx] = particle.position + particle.velocity * elapsed_secs;
-
-  particles[idx] = particle;
+  predicted[idx].velocity = particle.velocity + elapsed_secs * sim.gravity / sim.scene_scale_factor;
+  predicted[idx].position = particle.position + elapsed_secs * predicted[idx].velocity;
 }
 
 @compute @workgroup_size(64)
@@ -80,28 +84,32 @@ fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   init_rand(idx, vec4f(elapsed_secs));
   var particle = particles[idx];
 
-  //Apply pressure and viscosity
+  //Apply forces
   let accel = compute_accel(idx);
-  particle.velocity += elapsed_secs * accel / sim.scene_scale_factor;
-
+  particle.velocity = predicted[idx].velocity +  elapsed_secs * accel / sim.scene_scale_factor;
   particle.position += elapsed_secs * particle.velocity;
+
   compute_collisions(&particle);
+
+  //storageBarrier();
   particles[idx] = particle;
 }
 
 fn compute_accel(idx: u32) -> vec3<f32>{
-  var pressure_force = vec3<f32>(0.0, 0.0, 0.0);
-  var viscosity_force = vec3<f32>(0.0, 0.0, 0.0);
+  var pressure_force = vec3<f32>(0.0);
+  var viscosity_force = vec3<f32>(0.0);
+  var surface_tension_force = vec3<f32>(0.0);
+  var adhesion_force = vec3<f32>(0.0);
+  var corrective_vorticity = vec3<f32>(0.0);
 
-  var surface_curvature = 0.0;
-
-  var surface_tension = vec3<f32>(0.0, 0.0, 0.0);
-
-  let p1_velocity = particles[idx].velocity;
-  let p1_pos = predicted_positions[idx];
+  let p1_vel = predicted[idx].velocity;
+  let p1_pos = predicted[idx].position;
   let p1_density = density_field[idx];
   let p1_near_density = near_density_field[idx];
   let p1_normal = surface_normals[idx];
+  let p1_vorticity = vorticity_field[idx];
+
+  surface_normals[idx] = vec3f(0.0);
 
   let center = get_cell_coord(p1_pos);
   //Neighbour search
@@ -113,68 +121,69 @@ fn compute_accel(idx: u32) -> vec3<f32>{
 
       var i = cell_start[hash];
       for(; i < sim.particles_amount; i++) {
+
         let cell = cell_hash[i];
         if(cell != hash) { break; }
 
         let id2 = particle_id[i];
         if (id2 == idx) { continue; }
 
-        let p2_pos = predicted_positions[id2];
-        let p2_velocity = particles[id2].velocity;
+        let p2_pos = predicted[id2].position;
+        let p2_vel = predicted[id2].velocity;
         let p2_density = density_field[id2];
         let p2_near_density = near_density_field[id2];
         let p2_normal = surface_normals[id2];
+        let p2_vorticity = vorticity_field[id2];
 
-        //Calculate pressure force
-        let vector = p2_pos - p1_pos;
-        //let distance = max(length(vector) - 2 * sim.particle_radius, 0.0);
-        let distance = length(vector);
-        var dir = normalize(vector);
+        let pos_vector = p2_pos - p1_pos;
+        let vel_vector = p2_vel - p1_vel;
+        let distance = length(pos_vector);
+        var dir = vec3f(0.0);
         if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
-
-
-
+        else { dir = normalize(pos_vector); }
 
         //Calculate pressure
         let average_pressure = (density_to_pressure(p1_density) + density_to_pressure(p2_density)) / 2.0;
         let average_near_pressure = (near_density_to_pressure(p1_near_density) + near_density_to_pressure(p2_near_density)) / 2.0;
 
-        pressure_force += dir * sim.particle_mass * average_pressure * dx_density_2_kernel(distance, sim.pressure_kernel_radius) / p2_density;
-        pressure_force += dir * sim.particle_mass * average_near_pressure * dx_density_3_kernel(distance, sim.near_pressure_kernel_radius) / p2_near_density;
+        pressure_force += dir * sim.particle_mass * average_pressure * d1_spiky_2_kernel(distance, sim.pressure_kernel_radius) / p2_density;
+        pressure_force += dir * sim.particle_mass * average_near_pressure * d1_spiky_3_kernel(distance, sim.near_pressure_kernel_radius) / p2_near_density;
 
         //Calculate viscosity
-        let velocity_dif = p2_velocity - p1_velocity;
-        let visc = sim.viscosity * sim.particle_mass * velocity_dif * viscosity_kernel_laplace(distance, sim.viscosity_kernel_radius) / p2_density;
+        let visc = sim.viscosity * sim.particle_mass * vel_vector * viscosity_kernel(distance, sim.viscosity_kernel_radius) / p2_density;
         viscosity_force += visc;
 
-        //Surface tension
-        //surface_curvature += sim.curvature_cef * sim.particle_mass * poly_laplace_kernel(distance, 1.0) / p2_density;
-
-        let cohesion_force = -dir * sim.cohesion_coef * pow(sim.particle_mass, 2.0) * cohesion_kernel(distance, 1.0);
+        //Calculate surface tension forces
+        let cohesion_force = dir * sim.cohesion_coef * pow(sim.particle_mass, 2.0) * cohesion_kernel(distance, 0.8);
         let curvature_force = -sim.curvature_cef * sim.particle_mass * (p1_normal - p2_normal);
-        let adhesion_force = -dir * sim.adhesion_cef * pow(sim.particle_mass, 2.0) * adhesion_kernel(distance, 1.0);
-        surface_tension += (cohesion_force + curvature_force + adhesion_force) * 2.0 * sim.rest_density / (p1_density + p2_density);
+        surface_tension_force += (cohesion_force + curvature_force) * 2.0 * sim.rest_density / (p1_density + p2_density);
+        adhesion_force += dir * sim.adhesion_cef * pow(sim.particle_mass, 2.0) * adhesion_kernel(distance, 0.9);
+
+        //Calculate corrective vorticity
+        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, 1.0)), 0.0);
+        corrective_vorticity += sim.particle_mass * length(p2_vorticity) * vort_grad / p2_density;
       }
     }
   }
-  // var surface_force = vec3f(0.0);
-  // if(length(p1_normal) > 0.01) {
-  //   surface_force = -sim.surface_tension * surface_curvature * normalize(p1_normal);
-  // }
 
-  return (viscosity_force + surface_tension - pressure_force) / p1_density;
+  var vorticity_force = vec3f(0.0);
+  if length(corrective_vorticity) >= 1.0e-7 {
+    vorticity_force = 0.1 * cross(normalize(corrective_vorticity), p1_vorticity);
+  }
+
+  return (viscosity_force + adhesion_force + surface_tension_force - pressure_force) / p1_density;
 }
 
 fn compute_collisions(particle: ptr<function, Particle>)  {
-  let dimensions = sim.bounding_box.dimensions;
+  let position2 = sim.bounding_box.position2;
   let particle_radius = sim.particle_radius;
 
-  var p1 = sim.bounding_box.position + particle_radius;
-  var p2 = sim.bounding_box.position + dimensions - particle_radius;
+  let p1 = sim.bounding_box.position1;
+  let p2 = sim.bounding_box.position2;
 
   var pos = (*particle).position;
   var vel = (*particle).velocity;
-  
+
   if pos.x < p1.x || pos.x > p2.x {
     pos.x = clamp(pos.x, p1.x, p2.x);
     vel.x *= -sim.collision_damping;
@@ -194,7 +203,7 @@ fn compute_density(@builtin(global_invocation_id) global_invocation_id : vec3u) 
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
-  let p1_pos = predicted_positions[idx];
+  let p1_pos = predicted[idx].position;
 
   var density = 0.0;
   var near_density = 0.0;
@@ -213,14 +222,13 @@ fn compute_density(@builtin(global_invocation_id) global_invocation_id : vec3u) 
         if(cell != hash) { break; }
 
         let id2 = particle_id[i];
-        let p2_pos = predicted_positions[id2];
+        let p2_pos = predicted[id2].position;
 
         //Calulate density
-        let vector = p2_pos - p1_pos;
-        let distance = length(vector);
+        let distance = length(p2_pos - p1_pos);
 
-        density += sim.particle_mass * density_2_kernel(distance, sim.poly_kernel_radius);
-        near_density += sim.particle_mass * density_3_kernel(distance, sim.poly_kernel_radius);
+        density += sim.particle_mass * spiky_2_kernel(distance, sim.poly_kernel_radius);
+        near_density += sim.particle_mass * spiky_3_kernel(distance, sim.poly_kernel_radius);
       }
     }
   }
@@ -234,9 +242,11 @@ fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id :
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
-  let p1_pos = predicted_positions[idx];
+  let p1_pos = predicted[idx].position;
+  let p1_vel = predicted[idx].velocity;
 
-  var surface_normal = vec3<f32>(0.0, 0.0, 0.0);
+  var surface_normal = vec3<f32>(0.0);
+  var vorticity = vec3<f32>(0.0);
 
   let center = get_cell_coord(p1_pos);
   //Neighbour search
@@ -254,25 +264,27 @@ fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id :
         let id2 = particle_id[i];
         if (id2 == idx) { continue; }
 
-        let p2_pos = predicted_positions[id2];
+        let p2_pos = predicted[id2].position;
+        let p2_vel = predicted[id2].velocity;
 
         //Calulate surface normals
-        let vector = p2_pos - p1_pos;
-        let distance = length(vector);
+        let pos_vector = p2_pos - p1_pos;
+        let vel_vector = p2_vel - p1_vel;
+
+        let distance = length(pos_vector);
         var dir = vec3f(0.0);
+        if distance != 0.0 { dir = normalize(pos_vector); }
 
-        if distance != 0.0 { dir = normalize(vector); }
+        surface_normal += dir * sim.particle_mass * d1_poly_kernel(distance, 1.0) / density_field[id2];
 
-        // if (distance == 0.0) { dir = normalize(vec3<f32>(rand() - 0.5, rand() - 0.5, 0.0)); }
-        // else { dir = normalize(vector);}
-
-        let normal_scale = sim.particle_mass * poly_d1_kernel(distance, 1.0) / density_field[id2];
-        surface_normal += dir * normal_scale;
+        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, 1.0)), 0.0);
+        vorticity += -sim.particle_mass * cross(vel_vector, vort_grad) / density_field[id2];
       }
     }
   }
  
   surface_normals[idx] = surface_normal;
+  vorticity_field[idx] = vorticity;
 }
 
 fn density_to_pressure(density: f32) -> f32 {
@@ -283,54 +295,52 @@ fn near_density_to_pressure(near_density: f32) -> f32 {
   return near_density * sim.near_pressure_multiplier;
 }
 
-fn scale_particle_value(p: ptr<function, Particle>, scale_factor: f32) {
-  (*p).position = (*p).position / scale_factor;
-  (*p).velocity = (*p).velocity / scale_factor;
-}
-
-
 ///
 /// Kernels
 ///
-fn density_2_kernel(dst: f32, h: f32) -> f32 {
+fn spiky_2_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  return pow(1-r/h,2.0);
+  let volume = radians(180.0)*h*h/6;
+
+  return pow(1-r/h,2.0)/ volume;
 }
 
-fn density_3_kernel(dst: f32, h: f32) -> f32 {
+fn spiky_3_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  return pow(1-r/h,3.0);
+  let volume = radians(180.0)*h*h/10.0;
+
+  return pow(1-r/h,3.0) / volume;
 }
 
-fn dx_density_2_kernel(dst: f32, h: f32) -> f32 {
+fn d1_spiky_2_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  return 2*(h-r)/(h*h);
+  let alpha = 12.0 / (radians(180.0)*pow(h, 4.0));
+
+  return (h-r) * alpha;
 }
 
-fn dx_density_3_kernel(dst: f32, h: f32) -> f32 {
+fn d1_spiky_3_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  return 3*pow(h-r,2.0)/(h*h*h);
+  let alpha = 30.0 / (radians(180.0)*pow(h, 5.0));
+
+  return pow(h-r,2.0) * alpha;
 }
-
-
-
-
 
 
 fn poly_kernel(dst: f32, h: f32) -> f32 {
@@ -339,27 +349,37 @@ fn poly_kernel(dst: f32, h: f32) -> f32 {
     return 0.0;
   }
 
-  return pow(h*h-r*r,3.0) * 315.0 / (64.0*radians(180.0)*pow(h,9.0));
+  let volume = radians(180.0) * pow(h, 8.0) / 4.0;
+
+  return pow(h*h-r*r,3.0) / volume;
 }
 
-fn poly_d1_kernel(dst: f32, h: f32) -> f32 {
+fn d1_poly_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  return r * pow(h*h-r*r,2.0) * 315.0 * 3 / (32.0*radians(180.0)*pow(h,9.0));
+  let volume = radians(180.0) * pow(h, 8.0) / 4.0;
+
+  return 6 * r * pow(h*h-r*r,2.0) / volume;
 }
 
-fn poly_laplace_kernel(dst: f32, h: f32) -> f32 {
+fn viscosity_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
   if r > h {
     return 0.0;
   }
 
-  let k = -6.0 * 315.0 / (64.0 * radians(180.0) * pow(h,9.0));
-  return k * (pow(h, 4.0) - 6.0*h*h*r*r + 5*pow(r,4.0));
+  let volume = radians(180.0) * pow(h, 6.0) / 30.0;
+
+  return (h-r) / volume;
 }
+
+
+
+
+
 
 fn cohesion_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
@@ -380,7 +400,7 @@ fn cohesion_kernel(dst: f32, h: f32) -> f32 {
 fn adhesion_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
 
-  let k = 0.007 / pow(h, 0.25);
+  let k = 0.007 / pow(h, 3.25);
   let e = 0.001;
 
   if 2*r > h+e && r <= h-e {
@@ -392,46 +412,8 @@ fn adhesion_kernel(dst: f32, h: f32) -> f32 {
 
 
 
-fn spiky_kernel(dst: f32, h: f32) -> f32 {
-  let r = dst * sim.scene_scale_factor;
-  if r > h {
-    return 0.0;
-  }
 
-  return pow(h-r,3.0) * 15.0 / (radians(180.0)*pow(h,6.0));
-}
 
-fn spiky_kernel_derivative(dst: f32, h: f32) -> f32 {
-  let r = dst * sim.scene_scale_factor;
-  if r > h {
-    return 0.0;
-  }
-
-  let volume = radians(180.0) * pow(h,6.0) / 15.0;
-
-  return 3.0 * pow(h-r, 2.0) / volume;
-}
-
-// fn viscosity_kernel(r: f32, h: f32) -> f32 {
-//   if r > h {
-//     return 0.0;
-//   }
-
-//   let a1 = -r*r*r/(2*h*h*h);
-//   let a2 = r*r/(h*h);
-//   let a3 = h/(2*r);
-
-//   return (a1+a2+a3-1.0) * 15.0 / (radians(360.0)*pow(h,3.0));
-// }
-
-fn viscosity_kernel_laplace(dst: f32, h: f32) -> f32 {
-  let r = dst * sim.scene_scale_factor;
-  if r > h {
-    return 0.0;
-  }
-
-  return (h - r) * 45 / (radians(180.0) * pow(h,6.0));
-}
 
 fn z_order_hash(x: i32, y: i32) -> u32 {
     let a = u32(x) * 15823;
