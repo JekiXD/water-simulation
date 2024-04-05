@@ -1,6 +1,7 @@
 use std::{io::Write, net::TcpStream};
 
 use eframe::egui;
+use log::info;
 use settings::settings;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -8,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_resizable(false)
-            .with_inner_size([470.0, 500.0]),
+            .with_inner_size([360.0, 540.0]),
         ..Default::default()
     };
 
@@ -16,7 +17,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
 
 struct SettingsUI {
     settings: settings::SimulationParameters,
@@ -77,10 +77,6 @@ impl SettingsUI {
         ui.add(egui::DragValue::new(&mut self.settings.viscosity).speed(0.01).clamp_range(0.0..=100.0));
         ui.end_row();
 
-        ui.label("Surface tension:");
-        ui.add(egui::DragValue::new(&mut self.settings.surface_tension).speed(0.1).clamp_range(0.0..=100.0));
-        ui.end_row();
-
         ui.label("Cohesion coef.:");
         ui.add(egui::DragValue::new(&mut self.settings.cohesion_coef).speed(0.1).clamp_range(0.0..=50000.0));
         ui.end_row();
@@ -110,6 +106,7 @@ impl SettingsUI {
         ui.end_row();
 
         self.bounding_box(ui);
+        self.gravity(ui);
     }
 
     fn bounding_box(&mut self,  ui: &mut egui::Ui) {
@@ -141,6 +138,17 @@ impl SettingsUI {
         ui.end_row();
     }
 
+    fn gravity(&mut self,  ui: &mut egui::Ui) {
+        ui.label("Gravity:");
+        ui.horizontal(|ui| {
+            ui.label("x:");
+            ui.add(egui::DragValue::new(&mut self.settings.gravity[0]).speed(0.01));
+            ui.label("y:");
+            ui.add(egui::DragValue::new(&mut self.settings.gravity[1]).speed(0.01));
+        });
+        ui.end_row();
+    }
+
     fn kernels(&mut self,  ui: &mut egui::Ui) {
         ui.label("Density kernel radius:");
         ui.add(egui::DragValue::new(&mut self.settings.poly_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
@@ -156,6 +164,22 @@ impl SettingsUI {
 
         ui.label("Viscosity kernel radius:");
         ui.add(egui::DragValue::new(&mut self.settings.viscosity_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
+        ui.end_row();
+
+        ui.label("Vorticity kernel radius:");
+        ui.add(egui::DragValue::new(&mut self.settings.vorticity_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
+        ui.end_row();
+
+        ui.label("Cohesion kernel radius:");
+        ui.add(egui::DragValue::new(&mut self.settings.cohesion_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
+        ui.end_row();
+
+        ui.label("Adhesion kernel radius:");
+        ui.add(egui::DragValue::new(&mut self.settings.adhesion_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
+        ui.end_row();
+
+        ui.label("Surface normal kernel radius:");
+        ui.add(egui::DragValue::new(&mut self.settings.surface_normal_kernel_radius).speed(0.01).clamp_range(0.1..=5.0));
         ui.end_row();
     }
 }
@@ -189,6 +213,6 @@ impl eframe::App for SettingsUI {
    }
 
    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        println!("{:?}", self.settings);
+        info!("{:?}", self.settings);
    }
 }

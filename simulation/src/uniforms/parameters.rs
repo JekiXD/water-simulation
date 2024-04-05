@@ -1,17 +1,6 @@
-use cgmath::Vector3;
 use wgpu::util::DeviceExt;
-
-use winit::event::ElementState;
-use winit::event::WindowEvent;
-use winit::event::KeyEvent;
-use winit::keyboard::KeyCode;
-use winit::keyboard::PhysicalKey;
-
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-
-use crate::geometry::BoundingBoxUniform;
-
 
 pub static SIMULATION_PARAMETERS: Lazy<Mutex<settings::SimulationParameters>> = Lazy::new(|| {
     Mutex::new(settings::SimulationParameters::default())

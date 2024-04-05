@@ -79,32 +79,28 @@ fn ui_listener() {
     std::thread::spawn(move || {
         let mut buffer = vec![0u8; std::mem::size_of::<settings::SimulationParameters>()];
         for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    match stream.read_exact(&mut buffer) {
-                        Ok(_) => {
-                            match bincode::deserialize::<settings::SimulationParameters>(&buffer) {
-                                Ok(settings) => {
-                                    let mut sim = SIMULATION_PARAMETERS.lock().unwrap();
-                                    *sim = settings;
-                                },
-                                Err(err) => {
-                                    log::error!("Failed to deserialize settings: {}", err);
-                                }
-                            }
-                        },
-                        Err(err) => {
-                            log::error!("Failed to read from socket: {}", err);
-                        }
-                    }
-                },
-                Err(err) => {
-                    log::error!("Failed to accept connection: {}", err);
-                }
+            if stream.is_err() {
+                log::error!("Failed to accept connection: {}", stream.err().unwrap());
+                continue;
             }
-        }
+            let mut stream = stream.unwrap();
 
-        println!("EXITED");
+            let read_res = stream.read_exact(&mut buffer);
+            if read_res.is_err() {
+                log::error!("Failed to read from socket: {}", read_res.err().unwrap());
+                continue;
+            }
+
+            let deser_res = bincode::deserialize::<settings::SimulationParameters>(&buffer);
+            if deser_res.is_err() {
+                log::error!("Failed to deserialize settings: {}", deser_res.err().unwrap());
+                continue;
+            }
+
+            let settings = deser_res.unwrap();
+            let mut sim = SIMULATION_PARAMETERS.lock().unwrap();
+            *sim = settings;
+        }
     });
 }
 

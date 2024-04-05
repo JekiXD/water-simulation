@@ -12,6 +12,8 @@ struct BoundingBox {
 }
 
 struct SimulationParameters {
+  bounding_box: BoundingBox,
+  gravity: vec3<f32>,
   particle_mass: f32,
   particle_radius: f32,
   particles_amount: u32,
@@ -21,17 +23,19 @@ struct SimulationParameters {
   near_pressure_kernel_radius: f32,
   viscosity_kernel_radius: f32,
   viscosity: f32,
-  surface_tension: f32,
   cohesion_coef: f32,
   curvature_cef: f32, 
   adhesion_cef: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   near_pressure_multiplier: f32,
-  bounding_box: BoundingBox,
   grid_size: f32,
   scene_scale_factor: f32,
-  gravity: vec3<f32>
+  vorticity_kernel_radius: f32,
+  vorticity_inensity: f32,
+  cohesion_kernel_radius: f32,
+  adhesion_kernel_radius: f32,
+  surface_normal_kernel_radius: f32
 }
 
 struct Predicted {
@@ -76,18 +80,24 @@ fn findCellStart(@builtin(global_invocation_id) global_invocation_id : vec3u) {
     }
 }
 
-fn z_order_hash(x: i32, y: i32) -> u32 {
-    // var z = 0u;
-    // for (var i = 0u; i < 16u; i++) {
-    //     let x_bit = (x >> i) & 1u;
-    //     let y_bit = (y >> i) & 1u;
-    //     z |= (x_bit << (2u * i)) | (y_bit << (2u * i + 1u));
-    // }
-    let a = u32(x) * 15823;
-    let b = u32(y) * 9737333;
-    //static const uint hashK3 = 440817757;
+const B: array<u32, 4> = array<u32, 4>(0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF);
+const S: array<u32, 4> = array<u32, 4>(1, 2, 4, 8);
 
-    return a + b;
+fn z_order_hash(x_in: i32, y_in: i32) -> u32 {
+    var x = u32(x_in);
+    var y = u32(y_in);
+
+    x = (x | (x << S[3])) & B[3];
+    x = (x | (x << S[2])) & B[2];
+    x = (x | (x << S[1])) & B[1];
+    x = (x | (x << S[0])) & B[0];
+
+    y = (y | (y << S[3])) & B[3];
+    y = (y | (y << S[2])) & B[2];
+    y = (y | (y << S[1])) & B[1];
+    y = (y | (y << S[0])) & B[0];
+
+    return x | (y << 1);
 }
 
 fn get_cell_coord(pos: vec3f) -> vec3i {

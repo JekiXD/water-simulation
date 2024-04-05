@@ -1,6 +1,4 @@
 use std::process::Command;
-use std::sync::mpsc;
-use std::thread;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>>{
     env_logger::init();

@@ -1,9 +1,6 @@
-use cgmath::{Vector3, Zero};
 use winit::dpi::PhysicalSize;
 
-use crate::geometry::BoundingBoxUniform;
-
-use self::{camera::{Camera, CameraState}, frame_time::{FrameTime, FrameTimeState}, parameters::SimulationParametersState};
+use self::{camera::{Camera, CameraState}, frame_time::FrameTimeState, parameters::SimulationParametersState};
 
 
 pub mod camera;

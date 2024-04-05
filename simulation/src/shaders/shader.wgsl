@@ -14,6 +14,8 @@ struct BoundingBox {
 }
 
 struct SimulationParameters {
+  bounding_box: BoundingBox,
+  gravity: vec3<f32>,
   particle_mass: f32,
   particle_radius: f32,
   particles_amount: u32,
@@ -23,17 +25,19 @@ struct SimulationParameters {
   near_pressure_kernel_radius: f32,
   viscosity_kernel_radius: f32,
   viscosity: f32,
-  surface_tension: f32,
   cohesion_coef: f32,
   curvature_cef: f32, 
   adhesion_cef: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   near_pressure_multiplier: f32,
-  bounding_box: BoundingBox,
   grid_size: f32,
   scene_scale_factor: f32,
-  gravity: vec3<f32>
+  vorticity_kernel_radius: f32,
+  vorticity_inensity: f32,
+  cohesion_kernel_radius: f32,
+  adhesion_kernel_radius: f32,
+  surface_normal_kernel_radius: f32
 }
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;

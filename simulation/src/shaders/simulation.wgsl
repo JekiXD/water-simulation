@@ -31,6 +31,8 @@ struct BoundingBox {
 }
 
 struct SimulationParameters {
+  bounding_box: BoundingBox,
+  gravity: vec3<f32>,
   particle_mass: f32,
   particle_radius: f32,
   particles_amount: u32,
@@ -40,17 +42,19 @@ struct SimulationParameters {
   near_pressure_kernel_radius: f32,
   viscosity_kernel_radius: f32,
   viscosity: f32,
-  surface_tension: f32,
   cohesion_coef: f32,
   curvature_cef: f32, 
   adhesion_cef: f32,
   rest_density: f32,
   pressure_multiplier: f32,
   near_pressure_multiplier: f32,
-  bounding_box: BoundingBox,
   grid_size: f32,
   scene_scale_factor: f32,
-  gravity: vec3<f32>
+  vorticity_kernel_radius: f32,
+  vorticity_inensity: f32,
+  cohesion_kernel_radius: f32,
+  adhesion_kernel_radius: f32,
+  surface_normal_kernel_radius: f32
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
@@ -90,8 +94,6 @@ fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   particle.position += elapsed_secs * particle.velocity;
 
   compute_collisions(&particle);
-
-  //storageBarrier();
   particles[idx] = particle;
 }
 
@@ -154,13 +156,13 @@ fn compute_accel(idx: u32) -> vec3<f32>{
         viscosity_force += visc;
 
         //Calculate surface tension forces
-        let cohesion_force = dir * sim.cohesion_coef * pow(sim.particle_mass, 2.0) * cohesion_kernel(distance, 0.8);
+        let cohesion_force = dir * sim.cohesion_coef * pow(sim.particle_mass, 2.0) * cohesion_kernel(distance, sim.cohesion_kernel_radius);
         let curvature_force = -sim.curvature_cef * sim.particle_mass * (p1_normal - p2_normal);
         surface_tension_force += (cohesion_force + curvature_force) * 2.0 * sim.rest_density / (p1_density + p2_density);
-        adhesion_force += dir * sim.adhesion_cef * pow(sim.particle_mass, 2.0) * adhesion_kernel(distance, 0.9);
+        adhesion_force += dir * sim.adhesion_cef * pow(sim.particle_mass, 2.0) * adhesion_kernel(distance, sim.adhesion_kernel_radius);
 
         //Calculate corrective vorticity
-        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, 1.0)), 0.0);
+        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
         corrective_vorticity += sim.particle_mass * length(p2_vorticity) * vort_grad / p2_density;
       }
     }
@@ -168,7 +170,7 @@ fn compute_accel(idx: u32) -> vec3<f32>{
 
   var vorticity_force = vec3f(0.0);
   if length(corrective_vorticity) >= 1.0e-7 {
-    vorticity_force = 0.1 * cross(normalize(corrective_vorticity), p1_vorticity);
+    vorticity_force = sim.vorticity_inensity * cross(normalize(corrective_vorticity), p1_vorticity);
   }
 
   return (viscosity_force + adhesion_force + surface_tension_force - pressure_force) / p1_density;
@@ -238,7 +240,7 @@ fn compute_density(@builtin(global_invocation_id) global_invocation_id : vec3u) 
 }
 
 @compute @workgroup_size(64)
-fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id : vec3u) {
+fn compute_intermediate_values(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
@@ -267,7 +269,6 @@ fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id :
         let p2_pos = predicted[id2].position;
         let p2_vel = predicted[id2].velocity;
 
-        //Calulate surface normals
         let pos_vector = p2_pos - p1_pos;
         let vel_vector = p2_vel - p1_vel;
 
@@ -275,9 +276,11 @@ fn compute_surface_normals(@builtin(global_invocation_id) global_invocation_id :
         var dir = vec3f(0.0);
         if distance != 0.0 { dir = normalize(pos_vector); }
 
-        surface_normal += dir * sim.particle_mass * d1_poly_kernel(distance, 1.0) / density_field[id2];
+        //Calulate surface normals
+        surface_normal += dir * sim.particle_mass * d1_poly_kernel(distance, sim.surface_normal_kernel_radius) / density_field[id2];
 
-        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, 1.0)), 0.0);
+        //Calculate vorticity
+        let vort_grad = vec3f(vec2f(d1_poly_kernel(distance, sim.vorticity_kernel_radius)), 0.0);
         vorticity += -sim.particle_mass * cross(vel_vector, vort_grad) / density_field[id2];
       }
     }
@@ -376,11 +379,6 @@ fn viscosity_kernel(dst: f32, h: f32) -> f32 {
   return (h-r) / volume;
 }
 
-
-
-
-
-
 fn cohesion_kernel(dst: f32, h: f32) -> f32 {
   let r = dst * sim.scene_scale_factor;
 
@@ -411,15 +409,24 @@ fn adhesion_kernel(dst: f32, h: f32) -> f32 {
 }
 
 
+const B: array<u32, 4> = array<u32, 4>(0x55555555, 0x33333333, 0x0F0F0F0F, 0x00FF00FF);
+const S: array<u32, 4> = array<u32, 4>(1, 2, 4, 8);
 
+fn z_order_hash(x_in: i32, y_in: i32) -> u32 {
+    var x = u32(x_in);
+    var y = u32(y_in);
 
+    x = (x | (x << S[3])) & B[3];
+    x = (x | (x << S[2])) & B[2];
+    x = (x | (x << S[1])) & B[1];
+    x = (x | (x << S[0])) & B[0];
 
+    y = (y | (y << S[3])) & B[3];
+    y = (y | (y << S[2])) & B[2];
+    y = (y | (y << S[1])) & B[1];
+    y = (y | (y << S[0])) & B[0];
 
-fn z_order_hash(x: i32, y: i32) -> u32 {
-    let a = u32(x) * 15823;
-    let b = u32(y) * 9737333;
-
-    return a + b;
+    return x | (y << 1);
 }
 
 fn get_cell_coord(pos: vec3f) -> vec3i {

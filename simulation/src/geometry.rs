@@ -1,8 +1,7 @@
 
 use cgmath::{Vector3, Vector4};
 use wgpu::util::DeviceExt;
-
-use  crate::{vertex::Vertex};
+use  crate::vertex::Vertex;
 
 pub struct Mesh {
     pub indices:  Vec<u16>,

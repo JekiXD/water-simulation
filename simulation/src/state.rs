@@ -1,14 +1,7 @@
 use std::sync::Arc;
-
-use log::debug;
-
-use winit::dpi::PhysicalPosition;
-use winit::keyboard::PhysicalKey;
-use winit::keyboard::KeyCode;
 use winit::window::Window;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event:: WindowEvent;
 
-use cgmath::prelude::*;
 use crate::particle::NeighbourSearchSortState;
 use crate::particle::ParticlesState;
 use crate::particle::{Particle, ParticleRaw};
@@ -16,7 +9,6 @@ use crate::uniforms::parameters::SIMULATION_PARAMETERS;
 use crate::uniforms::UniformState;
 use crate::vertex::*;
 use crate::geometry;
-use crate::uniforms::camera::*;
 
 pub struct State {
     pub surface: wgpu::Surface<'static>,
@@ -94,7 +86,6 @@ impl State {
         // End of window surface configuration
         //
 
-        //Apply scale is called so you swap order of function calls
         let particles_state = ParticlesState::new(&device, &config);
         let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
         let uniform_state = UniformState::new(&device, &size);
@@ -201,14 +192,14 @@ impl State {
         });
 
         let sn_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
-            label: Some("Surface normals"),
+            label: Some("Intermediate values"),
             layout: Some(&compute_pipeline_layout),
             module: &simulate_shader,
-            entry_point: "compute_surface_normals"
+            entry_point: "compute_intermediate_values"
         });
 
         //
-        // Pipeling to prepare resource for the sort
+        // Pipeline to prepare resources for the sort
         //
         let sort_prep_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor { 
             label: Some("Sort preperation shader"), 
@@ -275,15 +266,7 @@ impl State {
     }
 
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        
-        match event {
-            WindowEvent::CursorMoved { device_id: _, position } => {
-                let PhysicalPosition {x, y} = position;
-
-                true
-            },
-            _ => false
-        }
+        false
     }
 
     pub fn update(&mut self) {
@@ -339,7 +322,7 @@ impl State {
         }
 
         {
-            //Find surface normals
+            //Find surface normals and vorticity
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             compute_pass.set_pipeline(&self.sn_pipeline);
             self.set_compute_bind_groups(&mut compute_pass);

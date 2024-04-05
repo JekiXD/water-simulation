@@ -1,8 +1,7 @@
 use std::num::NonZeroU32;
 
-use cgmath::{Vector2, Vector3, Vector4};
+use cgmath::{Vector3, Vector4};
 use wgpu::util::DeviceExt;
-use wgpu::Label;
 
 pub const SEGMENTS: u32 = 32;
 
