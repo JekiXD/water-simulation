@@ -48,7 +48,7 @@ impl Default for SimulationParameters {
 
         let particle_mass = 1.0;
         let particle_radius = 1.5;
-        let particles_amount = 15000;
+        let particles_amount = 16384;
         let collision_damping = 0.9;
         let viscosity = 0.05;
         let cohesion_coef = 1.0;
@@ -59,7 +59,7 @@ impl Default for SimulationParameters {
         let near_pressure_multiplier = 110.0;
         let bounding_box = BoundingBoxUniform::new(Vector3::new(0.0, 0.0, 0.0),  Vector3::new(width, height, 1.0));
         let grid_size = 0.6;
-        let gravity = [0.0, -10.0, 0.0];
+        let gravity = [0.0, -15.0, 0.0];
         let vorticity_inensity = 0.5;
         let time_scale = 1.0 / 120.0;
         let velocity_smoothing_scale = 0.035;
