@@ -55,7 +55,8 @@ struct SimulationParameters {
   cohesion_kernel_radius: f32,
   adhesion_kernel_radius: f32,
   surface_normal_kernel_radius: f32,
-  time_scale: f32
+  time_scale: f32,
+  velocity_smoothing_scale: f32
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
@@ -81,7 +82,51 @@ fn predict_positions(@builtin(global_invocation_id) global_invocation_id : vec3u
 }
 
 @compute @workgroup_size(64)
-fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
+fn update_positions(@builtin(global_invocation_id) global_invocation_id : vec3u) {
+  let idx = global_invocation_id.x;
+  if(idx >= sim.particles_amount) { return; }
+
+  var p1 = particles[idx];
+  var smoothed_vel = vec3f(0.0);
+  
+  //Smooth velocities
+  let center = get_cell_coord(p1.position);
+  for(var x = -1; x <= 1; x++) {
+    for(var y = -1; y <= 1; y++) {
+      let cur_pos = center + vec3i(x, y, 0); 
+
+      let hash = get_key_from_hash(z_order_hash(cur_pos.x, cur_pos.y));
+
+      var i = cell_start[hash];
+      for(; i < sim.particles_amount; i++) {
+        let cell = cell_hash[i];
+        if(cell != hash) { break; }
+
+        let id2 = particle_id[i];
+        if (id2 == idx) { continue; }
+
+        let p2 = particles[id2];
+        let p2_density = density_field[id2];
+
+        let distance = distance(p2.position, p1.position);
+        let vel_vector = p2.velocity - p1.velocity;
+
+        smoothed_vel += sim.particle_mass * vel_vector * poly_kernel(distance, sim.grid_size) / p2_density;
+      }
+    }
+  }
+
+  p1.velocity += sim.velocity_smoothing_scale * smoothed_vel;
+  p1.position += sim.time_scale * p1.velocity;
+  compute_collisions(&p1);
+
+  storageBarrier();
+  particles[idx] = p1;
+}
+
+
+@compute @workgroup_size(64)
+fn calculate_forces(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
@@ -91,9 +136,6 @@ fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   //Apply forces
   let accel = compute_accel(idx);
   particle.velocity = predicted[idx].velocity +  sim.time_scale * accel / sim.scene_scale_factor;
-  particle.position += sim.time_scale * particle.velocity;
-
-  compute_collisions(&particle);
   particles[idx] = particle;
 }
 

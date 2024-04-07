@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_resizable(false)
-            .with_inner_size([360.0, 580.0]),
+            .with_inner_size([360.0, 600.0]),
         ..Default::default()
     };
 
@@ -111,6 +111,10 @@ impl SettingsUI {
 
         ui.label("Grid size:");
         ui.add(egui::DragValue::new(&mut self.settings.grid_size).speed(0.01).clamp_range(0.01..=10.0));
+        ui.end_row();
+
+        ui.label("Velocity smoothing scale:");
+        ui.add(egui::DragValue::new(&mut self.settings.velocity_smoothing_scale).speed(0.001).clamp_range(0.0..=1.0));
         ui.end_row();
 
         self.bounding_box(ui);

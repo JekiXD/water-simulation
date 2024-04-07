@@ -21,13 +21,14 @@ pub struct State {
     render_pipeline: wgpu::RenderPipeline,
     particles_state: ParticlesState,
     circle_mesh_buffer: geometry::MeshBuffer,
-    simulate_pipeline: wgpu::ComputePipeline,
+    forces_pipeline: wgpu::ComputePipeline,
     d_pipeline: wgpu::ComputePipeline,
     sort_state: NeighbourSearchSortState,
     calc_hash_pipeline: wgpu::ComputePipeline,
     cell_start_pipeline: wgpu::ComputePipeline,
     pre_pos_pipeline: wgpu::ComputePipeline,
-    sn_pipeline: wgpu::ComputePipeline
+    sn_pipeline: wgpu::ComputePipeline,
+    move_pipeline: wgpu::ComputePipeline
 }
 
 impl State {
@@ -170,11 +171,18 @@ impl State {
             }
         );
 
-        let simulate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+        let move_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
+            label: Some("Update particle's positions pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &simulate_shader,
+            entry_point: "update_positions"
+        });
+
+        let forces_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
             label: Some("Simulation pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &simulate_shader,
-            entry_point: "simulate"
+            entry_point: "calculate_forces"
         });
 
         let d_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor{
@@ -242,13 +250,14 @@ impl State {
             render_pipeline,
             particles_state,
             circle_mesh_buffer,
-            simulate_pipeline,
+            forces_pipeline,
             d_pipeline,
             sort_state,
             calc_hash_pipeline,
             cell_start_pipeline,
             pre_pos_pipeline,
-            sn_pipeline
+            sn_pipeline,
+            move_pipeline
         }
     }
 
@@ -330,9 +339,17 @@ impl State {
         }
 
         {
-            //Simulate
+            //Calculate forces
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.simulate_pipeline);
+            compute_pass.set_pipeline(&self.forces_pipeline);
+            self.set_compute_bind_groups(&mut compute_pass);
+            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
+        }
+
+        {
+            //Smooth velocities and update positions
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+            compute_pass.set_pipeline(&self.move_pipeline);
             self.set_compute_bind_groups(&mut compute_pass);
             compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
         }
