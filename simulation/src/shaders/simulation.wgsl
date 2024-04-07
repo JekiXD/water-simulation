@@ -54,7 +54,8 @@ struct SimulationParameters {
   vorticity_inensity: f32,
   cohesion_kernel_radius: f32,
   adhesion_kernel_radius: f32,
-  surface_normal_kernel_radius: f32
+  surface_normal_kernel_radius: f32,
+  time_scale: f32
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
@@ -63,8 +64,7 @@ struct SimulationParameters {
 @group(1) @binding(2) var<storage, read_write> surface_normals : array<vec3<f32>>;
 @group(1) @binding(3) var<storage, read_write> near_density_field : array<f32>;
 @group(1) @binding(4) var<storage, read_write> vorticity_field : array<vec3<f32>>;
-@group(2) @binding(1) var<uniform> elapsed_secs: f32;
-@group(2) @binding(2) var<uniform> sim: SimulationParameters;
+@group(2) @binding(1) var<uniform> sim: SimulationParameters;
 @group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
 @group(3) @binding(1) var<storage, read_write> particle_id : array<u32>;
 @group(3) @binding(2) var<storage, read_write> cell_start : array<u32>;
@@ -76,8 +76,8 @@ fn predict_positions(@builtin(global_invocation_id) global_invocation_id : vec3u
 
   var particle = particles[idx];
   //Apply gravity
-  predicted[idx].velocity = particle.velocity + elapsed_secs * sim.gravity / sim.scene_scale_factor;
-  predicted[idx].position = particle.position + elapsed_secs * predicted[idx].velocity;
+  predicted[idx].velocity = particle.velocity + sim.time_scale * sim.gravity / sim.scene_scale_factor;
+  predicted[idx].position = particle.position + sim.time_scale * predicted[idx].velocity;
 }
 
 @compute @workgroup_size(64)
@@ -85,13 +85,13 @@ fn simulate(@builtin(global_invocation_id) global_invocation_id : vec3u) {
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
-  init_rand(idx, vec4f(elapsed_secs));
+  init_rand(idx, vec4f(sim.time_scale));
   var particle = particles[idx];
 
   //Apply forces
   let accel = compute_accel(idx);
-  particle.velocity = predicted[idx].velocity +  elapsed_secs * accel / sim.scene_scale_factor;
-  particle.position += elapsed_secs * particle.velocity;
+  particle.velocity = predicted[idx].velocity +  sim.time_scale * accel / sim.scene_scale_factor;
+  particle.position += sim.time_scale * particle.velocity;
 
   compute_collisions(&particle);
   particles[idx] = particle;

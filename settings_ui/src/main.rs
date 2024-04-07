@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_resizable(false)
-            .with_inner_size([360.0, 560.0]),
+            .with_inner_size([360.0, 580.0]),
         ..Default::default()
     };
 
@@ -59,6 +59,10 @@ impl SettingsUI {
     fn general_params(&mut self,  ui: &mut egui::Ui) {
         ui.label("Scene scale:");
         ui.add(egui::DragValue::new(&mut self.settings.scene_scale_factor).speed(0.001).clamp_range(0.0..=1.0));
+        ui.end_row();
+
+        ui.label("Time scale:");
+        ui.add(egui::DragValue::new(&mut self.settings.time_scale).speed(0.0001).clamp_range(0.0..=1.0));
         ui.end_row();
 
         ui.label("Particle's mass:");

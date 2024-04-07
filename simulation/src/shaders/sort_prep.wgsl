@@ -45,7 +45,7 @@ struct Predicted {
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
 @group(1) @binding(1) var<storage, read_write> predicted : array<Predicted>;
-@group(2) @binding(2) var<uniform> sim: SimulationParameters;
+@group(2) @binding(1) var<uniform> sim: SimulationParameters;
 @group(3) @binding(0) var<storage, read_write> cell_hash : array<u32>;
 @group(3) @binding(1) var<storage, read_write> particle_id : array<u32>;
 @group(3) @binding(2) var<storage, read_write> cell_start : array<u32>;
