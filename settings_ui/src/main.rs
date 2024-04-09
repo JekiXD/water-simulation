@@ -58,7 +58,7 @@ impl SettingsUI {
 
     fn general_params(&mut self,  ui: &mut egui::Ui) {
         ui.label("Scene scale:");
-        ui.add(egui::DragValue::new(&mut self.settings.scene_scale_factor).speed(0.001).clamp_range(0.0..=1.0));
+        ui.add(egui::DragValue::new(&mut self.settings.scene_scale_factor).speed(0.001).clamp_range(0.01..=1.0));
         ui.end_row();
 
         ui.label("Time step:");
@@ -66,7 +66,7 @@ impl SettingsUI {
         ui.end_row();
 
         ui.label("Particle's mass:");
-        ui.add(egui::DragValue::new(&mut self.settings.particle_mass).speed(0.1).clamp_range(0.0..=100.0));
+        ui.add(egui::DragValue::new(&mut self.settings.particle_mass).speed(0.1).clamp_range(0.1..=100.0));
         ui.end_row();
 
         ui.label("Particles's (draw) radius:");
@@ -110,7 +110,7 @@ impl SettingsUI {
         ui.end_row();
 
         ui.label("Grid size:");
-        ui.add(egui::DragValue::new(&mut self.settings.grid_size).speed(0.01).clamp_range(0.01..=10.0));
+        ui.add(egui::DragValue::new(&mut self.settings.grid_size).speed(0.01).clamp_range(0.1..=10.0));
         ui.end_row();
 
         ui.label("Velocity smoothing scale:");
