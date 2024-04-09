@@ -33,7 +33,7 @@ impl SettingsUI {
 
         SettingsUI { 
             settings,
-            stream: stream,
+            stream,
             last_instant: std::time::Instant::now(),
             start_bound: settings.bounding_box
         }
@@ -61,8 +61,8 @@ impl SettingsUI {
         ui.add(egui::DragValue::new(&mut self.settings.scene_scale_factor).speed(0.001).clamp_range(0.0..=1.0));
         ui.end_row();
 
-        ui.label("Time scale:");
-        ui.add(egui::DragValue::new(&mut self.settings.time_scale).speed(0.0001).clamp_range(0.0..=1.0));
+        ui.label("Time step:");
+        ui.add(egui::DragValue::new(&mut self.settings.time_step).speed(0.0001).clamp_range(0.0..=1.0));
         ui.end_row();
 
         ui.label("Particle's mass:");
@@ -197,7 +197,7 @@ impl SettingsUI {
 }
 
 impl eframe::App for SettingsUI {
-   fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default()
         .show(ctx, |ui| {
             self.ui(ui);

@@ -38,7 +38,7 @@ struct SimulationParameters {
   cohesion_kernel_radius: f32,
   adhesion_kernel_radius: f32,
   surface_normal_kernel_radius: f32,
-  time_scale: f32,
+  time_step: f32,
   velocity_smoothing_scale: f32
 }
 

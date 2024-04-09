@@ -55,7 +55,7 @@ struct SimulationParameters {
   cohesion_kernel_radius: f32,
   adhesion_kernel_radius: f32,
   surface_normal_kernel_radius: f32,
-  time_scale: f32,
+  time_step: f32,
   velocity_smoothing_scale: f32
 }
 
@@ -77,8 +77,8 @@ fn predict_positions(@builtin(global_invocation_id) global_invocation_id : vec3u
 
   var particle = particles[idx];
   //Apply gravity
-  predicted[idx].velocity = particle.velocity + sim.time_scale * sim.gravity / sim.scene_scale_factor;
-  predicted[idx].position = particle.position + sim.time_scale * predicted[idx].velocity;
+  predicted[idx].velocity = particle.velocity + sim.time_step * sim.gravity / sim.scene_scale_factor;
+  predicted[idx].position = particle.position + sim.time_step * predicted[idx].velocity;
 }
 
 @compute @workgroup_size(64)
@@ -117,7 +117,7 @@ fn update_positions(@builtin(global_invocation_id) global_invocation_id : vec3u)
   }
 
   p1.velocity += sim.velocity_smoothing_scale * smoothed_vel;
-  p1.position += sim.time_scale * p1.velocity;
+  p1.position += sim.time_step * p1.velocity;
   compute_collisions(&p1);
 
   storageBarrier();
@@ -130,12 +130,12 @@ fn calculate_forces(@builtin(global_invocation_id) global_invocation_id : vec3u)
   let idx = global_invocation_id.x;
   if(idx >= sim.particles_amount) { return; }
 
-  init_rand(idx, vec4f(sim.time_scale));
+  init_rand(idx, vec4f(sim.time_step * f32(idx)));
   var particle = particles[idx];
 
   //Apply forces
   let accel = compute_accel(idx);
-  particle.velocity = predicted[idx].velocity +  sim.time_scale * accel / sim.scene_scale_factor;
+  particle.velocity = predicted[idx].velocity +  sim.time_step * accel / sim.scene_scale_factor;
   particles[idx] = particle;
 }
 

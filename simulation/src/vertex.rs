@@ -14,7 +14,7 @@ impl Vertex {
         }
     }
 
-    pub fn into_raw(&self) -> VertexRaw {
+    pub fn into_raw(self) -> VertexRaw {
         VertexRaw {
             position: self.position.into(),
             color: self.color.into()

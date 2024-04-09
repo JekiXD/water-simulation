@@ -25,7 +25,7 @@ impl Particle {
         }
     }
 
-    pub fn into_raw(&self) -> ParticleRaw {
+    pub fn into_raw(self) -> ParticleRaw {
         ParticleRaw {
             position: self.position.into(),
             velocity: self.velocity.into(),
@@ -93,7 +93,7 @@ pub struct ParticlesState {
 }
 
 impl ParticlesState {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(device: &wgpu::Device) -> Self {
         let sim = SIMULATION_PARAMETERS.lock().unwrap();
         let screen_size = sim.bounding_box.position2;
 
@@ -405,7 +405,7 @@ pub struct NeighbourSearchSortState {
 }
 
 impl NeighbourSearchSortState {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, subgroup_size: u32) -> Self {
+    pub fn new(device: &wgpu::Device, subgroup_size: u32) -> Self {
         let sim = SIMULATION_PARAMETERS.lock().unwrap();
         let grid_state = NeighbourSearchGridState::new(device, sim.particles_amount);
         let sorter = wgpu_sort::GPUSorter::new(device, subgroup_size);

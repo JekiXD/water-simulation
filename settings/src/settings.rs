@@ -34,7 +34,7 @@ pub struct SimulationParameters {
     //20
     pub adhesion_kernel_radius: f32,
     pub surface_normal_kernel_radius: f32,
-    pub time_scale: f32,
+    pub time_step: f32,
     pub velocity_smoothing_scale: f32,
     _padding: [f32; 1]
 }
@@ -61,7 +61,7 @@ impl Default for SimulationParameters {
         let grid_size = 0.6;
         let gravity = [0.0, -15.0, 0.0];
         let vorticity_inensity = 0.5;
-        let time_scale = 1.0 / 120.0;
+        let time_step = 1.0 / 120.0;
         let velocity_smoothing_scale = 0.035;
 
         let poly_kernel_radius = grid_size;
@@ -98,7 +98,7 @@ impl Default for SimulationParameters {
             cohesion_kernel_radius,
             adhesion_kernel_radius,
             surface_normal_kernel_radius,
-            time_scale,
+            time_step,
             velocity_smoothing_scale,
             _padding: Default::default(),
         }

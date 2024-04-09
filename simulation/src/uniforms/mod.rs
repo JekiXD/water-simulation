@@ -69,7 +69,7 @@ impl UniformState {
         }
     }
 
-    pub fn update(&mut self, queue: &wgpu::Queue) {
+    pub fn update(&mut self, _queue: &wgpu::Queue) {
         //TODO
     }
 }

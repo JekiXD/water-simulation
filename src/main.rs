@@ -1,14 +1,12 @@
 use std::process::Command;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>>{
-    env_logger::init();
-
-    let mut simulation_process = Command::new("target/debug/simulation.exe")
+    let mut simulation_process = Command::new("target/debug/simulation")
         .env("RUST_LOG", "error")
         .spawn()
         .expect("Failed to spawn simulation");
 
-    let mut gui_process = Command::new("target/debug/settings_ui.exe")
+    let mut gui_process = Command::new("target/debug/settings_ui")
         .env("RUST_LOG", "error")
         .spawn()
         .expect("Failed to spawn GUI application");

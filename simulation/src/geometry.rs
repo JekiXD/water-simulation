@@ -18,7 +18,7 @@ pub struct MeshBuffer {
 }
 
 impl Mesh {
-    pub fn into_buffer(&self, device: &wgpu::Device) -> MeshBuffer {
+    pub fn into_buffer(self, device: &wgpu::Device) -> MeshBuffer {
         let num_indices = self.indices.len() as u32;
         let num_vertices = self.vertices.len() as u32;
         let vertices: Vec<_> = self.vertices.iter().map(|v| v.into_raw()).collect();
@@ -64,17 +64,14 @@ pub fn circle(radius: f32, segments: u32) -> Mesh {
     vertices.push(vertex);
     normals.push(Vector3::new(0.0, 0.0, 1.0));
 
-    let mut i = 0;
     for s in 0..=segments {
         let segment = theta_start + s as f32 / segments as f32 * theta_length;
 
-        vertex.position.x = radius * (segment as f32).cos();
-        vertex.position.y = radius * (segment as f32).sin();
+        vertex.position.x = radius * segment.cos();
+        vertex.position.y = radius * segment.sin();
 
         vertices.push(vertex);
         normals.push(Vector3::new(0.0, 0.0, 1.0));
-
-        i += 3;
     }
 
     for i in 1..=segments {
@@ -88,25 +85,6 @@ pub fn circle(radius: f32, segments: u32) -> Mesh {
         indices,
         vertices,
         normals
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct BoundingBoxUniform{
-    pub position: [f32; 3],
-    _padding: u32,
-    pub dimensions: [f32; 3],
-    _padding1: u32,
-}
-
-impl BoundingBoxUniform {
-    pub fn new(position: Vector3<f32>, dimensions: Vector3<f32>) -> Self {
-        BoundingBoxUniform {
-            position: position.into(),
-            dimensions: dimensions.into(),
-            ..Default::default()
-        }
     }
 }
 

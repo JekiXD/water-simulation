@@ -66,8 +66,7 @@ impl State {
 
         let surface_format = surface_caps.formats.iter()
             .copied()
-            .filter(|f| f.is_srgb())
-            .next()
+            .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
@@ -87,12 +86,12 @@ impl State {
         // End of window surface configuration
         //
 
-        let particles_state = ParticlesState::new(&device, &config);
+        let particles_state = ParticlesState::new(&device);
         let circle_mesh_buffer = Particle::circle_mesh().into_buffer(&device);
         let uniform_state = UniformState::new(&device, &size);
 
         let subgroup_size = wgpu_sort::utils::guess_workgroup_size(&device, &queue).await.unwrap();
-        let sort_state = NeighbourSearchSortState::new(&device, &queue, subgroup_size);
+        let sort_state = NeighbourSearchSortState::new(&device, subgroup_size);
 
         //
         // Render pipeline
@@ -274,7 +273,7 @@ impl State {
         }
     }
 
-    pub fn input(&mut self, event: &WindowEvent) -> bool {
+    pub fn input(&mut self, _event: &WindowEvent) -> bool {
         false
     }
 

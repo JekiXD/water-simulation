@@ -21,14 +21,16 @@ pub struct Camera {
 
 impl Camera {
     pub fn new(window_size: &PhysicalSize<u32>) -> Self {
+        let eye_x = window_size.width as f32 / 2.0;
+        let eye_y =  window_size.height as f32 / 2.0;
         Camera {
-            eye: (window_size.width as f32 / 2.0, window_size.height as f32 / 2.0, 450.0).into(),
-            direction: (0.0, 0.0, -1.0).into(),
+            eye: (eye_x, eye_y, eye_y).into(),
+            direction: -cgmath::Vector3::unit_z(),
             up: cgmath::Vector3::unit_y(),
             aspect: window_size.width as f32 / window_size.height as f32,
             fovy: 90.0,
             znear: 0.1,
-            zfar: 500.0,
+            zfar: eye_y + 50.0,
         }
     }
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
@@ -36,7 +38,7 @@ impl Camera {
 
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
-        return  proj * view;
+        proj * view
     }
 }
 
