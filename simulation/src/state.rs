@@ -291,67 +291,31 @@ impl State {
         });
 
         let particles_amount = SIMULATION_PARAMETERS.lock().unwrap().particles_amount;
+        let workgroups = cgmath::vec3(particles_amount.div_ceil(64), 1, 1);
 
-        {
-            //Predict particle's positions
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.pre_pos_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Predict particle's positions
+        self.setup_compute_pass(&mut encoder, &self.pre_pos_pipeline, &workgroups);
 
-        {
-            //Prepare data for the sort
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.calc_hash_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Prepare data for the sort
+        self.setup_compute_pass(&mut encoder, &self.calc_hash_pipeline, &workgroups);
 
-        {
-            //Sort for neighbour search
-            self.sort_state.sort(&mut encoder, &self.queue);
-        }
+        //Sort for neighbour search
+        self.sort_state.sort(&mut encoder, &self.queue);
 
-        {
-            //Find start for each cell in the grid
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.cell_start_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Find start for each cell in the grid
+        self.setup_compute_pass(&mut encoder, &self.cell_start_pipeline, &workgroups);
 
-        {
-            //Precompute densities for each particle
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.d_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Precompute densities for each particle
+        self.setup_compute_pass(&mut encoder, &self.d_pipeline, &workgroups);
 
-        {
-            //Find surface normals and vorticity
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.sn_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Find surface normals and vorticity
+        self.setup_compute_pass(&mut encoder, &self.sn_pipeline, &workgroups);
 
-        {
-            //Calculate forces
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.forces_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Calculate forces
+        self.setup_compute_pass(&mut encoder, &self.forces_pipeline, &workgroups);
 
-        {
-            //Smooth velocities and update positions
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            compute_pass.set_pipeline(&self.move_pipeline);
-            self.set_compute_bind_groups(&mut compute_pass);
-            compute_pass.dispatch_workgroups(particles_amount.div_ceil(64), 1, 1);
-        }
+        //Smooth velocities and update positions
+        self.setup_compute_pass(&mut encoder, &self.move_pipeline, &workgroups);
 
         
         {
@@ -386,6 +350,13 @@ impl State {
         output.present();
 
         Ok(())
+    }
+
+    fn setup_compute_pass(&self, encoder: &mut wgpu::CommandEncoder, pipeline: &wgpu::ComputePipeline, workgroups: &cgmath::Vector3<u32>) {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
+        compute_pass.set_pipeline(pipeline);
+        self.set_compute_bind_groups(&mut compute_pass);
+        compute_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
     }
 
     fn set_compute_bind_groups<'cp>(&'cp self, compute_pass: &mut wgpu::ComputePass<'cp>) {
