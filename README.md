@@ -12,3 +12,5 @@ If simulation is lagging, you can try  decreasing the amount of particles in `se
 
 Beware, that changing kernel's radiuses is going to destabilize the system. You'll have to play with values(the main ones are "Rest density" and "Near/Pressure multiplier") to find a new balance.
 
+<img src="assets/water_simulation.gif"/>
+
